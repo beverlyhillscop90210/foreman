@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import { initCommand } from './cli/init.js';
 import { scopeCommand } from './cli/scope.js';
 import { statusCommand } from './cli/status.js';
+import { watchCommand } from './cli/watch.js';
 
 const program = new Command();
 
@@ -39,6 +40,12 @@ program
   .command('status')
   .description('Show active task and file scope status')
   .action(statusCommand);
+
+// foreman watch
+program
+  .command('watch')
+  .description('Watch files in real-time and alert on scope violations')
+  .action(watchCommand);
 
 // foreman review
 program
