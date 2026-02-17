@@ -1,0 +1,15 @@
+{
+  "project": "my-project",
+  "api_url": "https://foreman-api.your-domain.workers.dev",
+  "api_token": "fm_xxxx",
+  "review_model": "claude-opus-4-20250514",
+  "architecture": {
+    "src/api/": "Backend API routes – CRITICAL",
+    "src/ui/": "Frontend components",
+    "src/services/": "Core business logic – CRITICAL",
+    "src/utils/": "Shared utilities"
+  },
+  "active_task": null,
+  "known_good_states": {}
+}
+
