@@ -9,7 +9,7 @@ The Foreman Bridge has been successfully deployed to DigitalOcean.
 ## 🌐 Server Information
 
 - **Droplet IP**: `207.154.246.112`
-- **Domain**: `foreman.zeon.eco` (DNS setup required)
+- **Domain**: `foreman.beverlyhillscop.io` (DNS setup required)
 - **OS**: Ubuntu 24.04.3 LTS
 - **Region**: Frankfurt
 - **RAM**: 2GB
@@ -99,7 +99,7 @@ Or if your DNS provider requires full domain:
 
 | Type | Host | Value | TTL |
 |------|------|-------|-----|
-| A | foreman.zeon.eco | 207.154.246.112 | 300 |
+| A | foreman.beverlyhillscop.io | 207.154.246.112 | 300 |
 
 ### After DNS Propagation
 
@@ -110,7 +110,7 @@ Once DNS is set up (1-5 minutes), Caddy will automatically:
 
 Test with:
 ```bash
-curl https://foreman.zeon.eco/health
+curl https://foreman.beverlyhillscop.io/health
 ```
 
 ---
@@ -169,12 +169,12 @@ ssh root@207.154.246.112 "systemctl restart foreman-bridge"
 ## 🎯 Next Steps
 
 1. **Add DNS Record** (Required for HTTPS)
-   - Add A record: `foreman.zeon.eco` → `207.154.246.112`
+   - Add A record: `foreman.beverlyhillscop.io` → `207.154.246.112`
    - Wait 1-5 minutes for propagation
 
 2. **Test HTTPS** (After DNS)
    ```bash
-   curl https://foreman.zeon.eco/health
+   curl https://foreman.beverlyhillscop.io/health
    ```
 
 3. **Integrate with Claude.ai** (Phase 2)

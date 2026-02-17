@@ -6,7 +6,7 @@ echo "=============================="
 
 DROPLET_IP="207.154.246.112"
 SSH_KEY="$HOME/.ssh/id_ed25519"
-DOMAIN="foreman.zeon.eco"
+DOMAIN="foreman.beverlyhillscop.io"
 
 echo ""
 echo "📋 Configuration:"
@@ -27,7 +27,7 @@ apt install -y caddy
 
 echo "⚙️  Configuring Caddy..."
 cat > /etc/caddy/Caddyfile << 'EOF'
-foreman.zeon.eco {
+foreman.beverlyhillscop.io {
     reverse_proxy localhost:3000
 }
 EOF
@@ -44,9 +44,9 @@ echo ""
 echo "✅ Caddy setup complete!"
 echo ""
 echo "📝 Next steps:"
-echo "  1. Add DNS A record: foreman.zeon.eco -> 207.154.246.112"
+echo "  1. Add DNS A record: foreman.beverlyhillscop.io -> 207.154.246.112"
 echo "  2. Wait for DNS propagation (1-5 minutes)"
-echo "  3. Test: curl https://foreman.zeon.eco/health"
+echo "  3. Test: curl https://foreman.beverlyhillscop.io/health"
 echo ""
 echo "  Caddy will automatically get SSL certificate from Let's Encrypt once DNS is set up."
 

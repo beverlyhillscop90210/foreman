@@ -81,12 +81,12 @@ apt install -y caddy
 
 Create `/etc/caddy/Caddyfile`:
 ```
-foreman.zeon.eco {
+foreman.beverlyhillscop.io {
     reverse_proxy localhost:3000
 }
 ```
 
-Peter needs to add a DNS A record for `foreman.zeon.eco` pointing to the droplet IP.
+Peter needs to add a DNS A record for `foreman.beverlyhillscop.io` pointing to the droplet IP.
 
 Restart Caddy:
 ```bash
@@ -100,8 +100,8 @@ Caddy handles SSL automatically via Let's Encrypt.
 After deployment, verify:
 
 1. `curl http://localhost:3000/health` returns OK
-2. `curl https://foreman.zeon.eco/health` returns OK (after DNS propagation)
-3. Test auth: `curl -H "Authorization: Bearer <token>" https://foreman.zeon.eco/tasks`
+2. `curl https://foreman.beverlyhillscop.io/health` returns OK (after DNS propagation)
+3. Test auth: `curl -H "Authorization: Bearer <token>" https://foreman.beverlyhillscop.io/tasks`
 
 ## Task 5: Dashboard (if bridge is done)
 
