@@ -1,0 +1,31 @@
+{
+  "name": "@foreman/bridge",
+  "version": "0.1.0",
+  "description": "Foreman Bridge - Agent orchestration service for DigitalOcean",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "test": "echo \"Tests coming soon\""
+  },
+  "keywords": ["foreman", "bridge", "agent-orchestration"],
+  "author": "Peter Schings",
+  "license": "MIT",
+  "dependencies": {
+    "hono": "^4.7.11",
+    "@hono/node-server": "^1.14.0",
+    "simple-git": "^3.22.0",
+    "minimatch": "^10.0.1",
+    "nanoid": "^5.0.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "tsx": "^4.19.2"
+  }
+}
+
