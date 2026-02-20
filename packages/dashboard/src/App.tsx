@@ -7,25 +7,40 @@ import { KanbanPage } from './pages/KanbanPage';
 import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useTerminalStore } from './stores/terminalStore';
+import { supabase } from './lib/supabase';
+import type { Session } from '@supabase/supabase-js';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
   const initialize = useTerminalStore(state => state.initialize);
 
   // Check authentication
   useEffect(() => {
-    const auth = localStorage.getItem('foreman_auth');
-    setIsAuthenticated(auth === 'true');
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   // Initialize real data from API
   useEffect(() => {
-    if (isAuthenticated) {
+    if (session) {
       initialize();
     }
-  }, [isAuthenticated, initialize]);
+  }, [session, initialize]);
 
-  if (!isAuthenticated) {
+  if (loading) {
+    return <div className="w-screen h-screen bg-foreman-bg-deep flex items-center justify-center text-foreman-orange">Loading...</div>;
+  }
+
+  if (!session) {
     return <LoginPage />;
   }
 

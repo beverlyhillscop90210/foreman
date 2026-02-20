@@ -1,15 +1,24 @@
 import { useState } from 'react';
+import { supabase } from '../../lib/supabase';
 
 export const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = () => {
-    setIsLoading(true);
-    // Mock OAuth - just set localStorage flag
-    setTimeout(() => {
-      localStorage.setItem('foreman_auth', 'true');
-      window.location.reload();
-    }, 1000);
+  const handleLogin = async () => {
+    try {
+      setIsLoading(true);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      alert(error.error_description || error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
