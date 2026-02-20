@@ -12,19 +12,22 @@ import type {
 import { TaskRunner } from './task-runner.js';
 import { DiffCapture } from './diff-capture.js';
 import { RoleManager } from './role-manager.js';
+import { KnowledgeGraph } from './knowledge-graph.js';
 
 export class TaskManager {
   private tasks: Map<string, Task> = new Map();
   private taskRunner: TaskRunner;
   private diffCapture: DiffCapture;
   private roleManager: RoleManager;
+  private knowledgeGraph: KnowledgeGraph;
 
   /** Hard limit: max concurrent running agents */
   private static readonly MAX_CONCURRENT_AGENTS = 10;
 
-  constructor(roleManager: RoleManager) {
+  constructor(roleManager: RoleManager, knowledgeGraph: KnowledgeGraph) {
     this.roleManager = roleManager;
-    this.taskRunner = new TaskRunner(roleManager);
+    this.knowledgeGraph = knowledgeGraph;
+    this.taskRunner = new TaskRunner(roleManager, knowledgeGraph);
     this.diffCapture = new DiffCapture();
   }
 

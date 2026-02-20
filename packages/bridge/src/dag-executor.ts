@@ -1,12 +1,15 @@
 import { DAGDefinition, DAGNode, DAGEdge, Task } from './types.js';
 import { TaskManager } from './task-manager.js';
+import { RiskManager } from './risk-manager.js';
 
 export class DAGExecutor {
   private taskManager: TaskManager;
+  private riskManager: RiskManager;
   private maxThreads: number;
 
-  constructor(taskManager: TaskManager, maxThreads: number = 6) {
+  constructor(taskManager: TaskManager, riskManager: RiskManager, maxThreads: number = 6) {
     this.taskManager = taskManager;
+    this.riskManager = riskManager;
     this.maxThreads = maxThreads;
   }
 
@@ -110,11 +113,33 @@ export class DAGExecutor {
           throw new Error(`Task ${task.id} failed or was rejected.`);
         }
       } else if (node.type === 'gate') {
-        // TODO: Implement QC Gate logic
         console.log(`Executing gate node ${node.id}...`);
-        // Simulate gate passing for now
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        node.status = 'completed';
+        
+        // Determine risk tier if not explicitly set
+        let riskTier = node.gate_config?.risk_tier;
+        if (!riskTier) {
+          // Find upstream tasks to determine risk based on their allowed files
+          const upstreamTasks = this.getUpstreamTasks(node, dag);
+          const allFiles = upstreamTasks.flatMap(t => t.config.allowed_files || []);
+          riskTier = this.riskManager.determineRiskTier(allFiles);
+          console.log(`Determined risk tier for gate ${node.id}: ${riskTier}`);
+        }
+
+        const gateConfig = this.riskManager.getGateConfig(riskTier);
+        
+        // In a real implementation, this would trigger the required checks
+        // (e.g., spawn a security_audit task, wait for manual approval, etc.)
+        console.log(`Gate ${node.id} requires checks: ${gateConfig.required_checks.join(', ')}`);
+        
+        if (gateConfig.auto_approve) {
+          console.log(`Gate ${node.id} auto-approved based on risk tier ${riskTier}`);
+          node.status = 'completed';
+        } else {
+          // For now, we just simulate a manual approval wait or automated check
+          console.log(`Gate ${node.id} waiting for required checks...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          node.status = 'completed';
+        }
       }
 
       node.completed_at = new Date().toISOString();
@@ -166,6 +191,33 @@ export class DAGExecutor {
 
       return allDependenciesMet;
     });
+  }
+
+  /**
+   * Get all upstream tasks for a given node
+   */
+  private getUpstreamTasks(node: DAGNode, dag: DAGDefinition): DAGNode[] {
+    const upstreamTasks: DAGNode[] = [];
+    const visited = new Set<string>();
+
+    const traverse = (currentNodeId: string) => {
+      if (visited.has(currentNodeId)) return;
+      visited.add(currentNodeId);
+
+      const incomingEdges = dag.edges.filter(edge => edge.to === currentNodeId);
+      for (const edge of incomingEdges) {
+        const sourceNode = dag.nodes.find(n => n.id === edge.from);
+        if (sourceNode) {
+          if (sourceNode.type === 'task') {
+            upstreamTasks.push(sourceNode);
+          }
+          traverse(sourceNode.id);
+        }
+      }
+    };
+
+    traverse(node.id);
+    return upstreamTasks;
   }
 
   /**

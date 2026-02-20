@@ -11,14 +11,17 @@ import { join } from 'path';
 import type { Task } from './types.js';
 import { ScopeEnforcer } from './scope-enforcer.js';
 import { RoleManager } from './role-manager.js';
+import { KnowledgeGraph } from './knowledge-graph.js';
 
 export class TaskRunner {
   private projectsDir: string;
   private augmentSessionAuth: string;
   private roleManager: RoleManager;
+  private knowledgeGraph: KnowledgeGraph;
 
-  constructor(roleManager: RoleManager) {
+  constructor(roleManager: RoleManager, knowledgeGraph: KnowledgeGraph) {
     this.roleManager = roleManager;
+    this.knowledgeGraph = knowledgeGraph;
     this.projectsDir = process.env.PROJECTS_DIR || '/home/foreman/projects';
 
     // Load Augment session - prefer env var, fall back to session.json
@@ -48,7 +51,8 @@ export class TaskRunner {
     // Create briefing file
     const briefingPath = join(projectDir, '.foreman', 'briefing.md');
     mkdirSync(join(projectDir, '.foreman'), { recursive: true });
-    writeFileSync(briefingPath, this.generateBriefing(task), 'utf-8');
+    const briefingContent = await this.generateBriefing(task);
+    writeFileSync(briefingPath, briefingContent, 'utf-8');
 
     // Initialize scope enforcer
     const scopeEnforcer = new ScopeEnforcer(task);
@@ -142,7 +146,7 @@ export class TaskRunner {
       throw new Error('Augment session not configured. Set AUGMENT_SESSION_AUTH env var.');
     }
 
-    const instruction = this.generateInstruction(task);
+    const instruction = await this.generateInstruction(task);
     const briefingPath = join(projectDir, '.foreman', 'briefing.md');
 
     // Build auggie args
@@ -188,7 +192,8 @@ export class TaskRunner {
     const env: Record<string, string> = {};
 
     // Claude Code reads instruction from positional arg or stdin
-    args.push(this.generateInstruction(task));
+    const instruction = await this.generateInstruction(task);
+    args.push(instruction);
 
     return this.spawnAgent('claude', args, projectDir, env, task, output);
   }
@@ -196,9 +201,27 @@ export class TaskRunner {
   /**
    * Generate the full instruction string for the agent
    */
-  private generateInstruction(task: Task): string {
+  private async generateInstruction(task: Task): Promise<string> {
     const role = task.role ? this.roleManager.getRole(task.role) : undefined;
     const systemPrompt = role ? role.system_prompt : 'You are a helpful AI coding assistant.';
+
+    // Load relevant knowledge
+    const projectKnowledge = await this.knowledgeGraph.getForProject(task.project);
+    const roleKnowledge = task.role ? await this.knowledgeGraph.getForRole(task.role) : [];
+    const scopeKnowledge = await this.knowledgeGraph.getForFiles(task.allowed_files);
+
+    const allKnowledge = [...projectKnowledge, ...roleKnowledge, ...scopeKnowledge];
+    // Deduplicate by ID
+    const uniqueKnowledge = Array.from(new Map(allKnowledge.map(k => [k.id, k])).values());
+
+    const knowledgeSection = uniqueKnowledge.length > 0
+      ? [
+          '## Relevant Knowledge',
+          '',
+          ...uniqueKnowledge.map(k => `### ${k.title}\n${k.content}\n`),
+          ''
+        ]
+      : [];
 
     return [
       `# Role: ${role ? role.id : 'default'}`,
@@ -208,6 +231,7 @@ export class TaskRunner {
       '',
       task.briefing,
       '',
+      ...knowledgeSection,
       '## File Scope Rules (STRICT)',
       '',
       '### Allowed Files (you may ONLY modify these):',
@@ -232,7 +256,7 @@ export class TaskRunner {
   /**
    * Generate briefing markdown (saved to disk for --instruction-file)
    */
-  private generateBriefing(task: Task): string {
+  private async generateBriefing(task: Task): Promise<string> {
     return this.generateInstruction(task);
   }
 }

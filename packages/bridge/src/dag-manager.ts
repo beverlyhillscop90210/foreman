@@ -2,13 +2,16 @@ import { nanoid } from 'nanoid';
 import { DAGDefinition, DAGNode, DAGEdge } from './types.js';
 import { DAGExecutor } from './dag-executor.js';
 import { TaskManager } from './task-manager.js';
+import { RiskManager } from './risk-manager.js';
 
 export class DAGManager {
   private dags: Map<string, DAGDefinition> = new Map();
   private executor: DAGExecutor;
+  private riskManager: RiskManager;
 
-  constructor(taskManager: TaskManager) {
-    this.executor = new DAGExecutor(taskManager);
+  constructor(taskManager: TaskManager, riskManager: RiskManager) {
+    this.riskManager = riskManager;
+    this.executor = new DAGExecutor(taskManager, riskManager);
   }
 
   /**

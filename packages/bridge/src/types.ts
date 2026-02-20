@@ -113,12 +113,47 @@ export interface DAGNode {
     max_retries?: number;
     timeout_minutes?: number;
   };
+  gate_config?: {
+    risk_tier: 'low' | 'medium' | 'high' | 'critical';
+    required_checks: string[];
+    auto_approve: boolean;
+    sha_pinned: boolean;
+    remediation_enabled: boolean;
+    max_remediation_loops: number;
+  };
   status: 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
   output?: any;
   error?: string;
   started_at?: string;
   completed_at?: string;
   updated_at?: string;
+}
+
+export interface RiskTierConfig {
+  rules: {
+    critical: string[];
+    high: string[];
+    medium: string[];
+    low: string[];
+  };
+  gates: {
+    critical: {
+      required_checks: string[];
+      auto_approve: boolean;
+    };
+    high: {
+      required_checks: string[];
+      auto_approve: boolean;
+    };
+    medium: {
+      required_checks: string[];
+      auto_approve: boolean;
+    };
+    low: {
+      required_checks: string[];
+      auto_approve: boolean;
+    };
+  };
 }
 
 export interface DAGEdge {
