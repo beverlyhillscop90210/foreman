@@ -1,207 +1,115 @@
-/**
- * Task Manager - Orchestrates task lifecycle
- */
-
-import { nanoid } from 'nanoid';
-import type {
-  Task,
-  CreateTaskRequest,
-  ApproveRequest,
-  RejectRequest,
-} from './types.js';
-import { TaskRunner } from './task-runner.js';
-import { DiffCapture } from './diff-capture.js';
-import { RoleManager } from './role-manager.js';
-import { KnowledgeGraph } from './knowledge-graph.js';
+import { readFileSync, writeFileSync, existsSync } from "fs";
+import { join } from "path";
+import { randomBytes } from "crypto";
+import type { Task, TaskStatus } from "./types.js";
 
 export class TaskManager {
-  private tasks: Map<string, Task> = new Map();
-  private taskRunner: TaskRunner;
-  private diffCapture: DiffCapture;
-  private roleManager: RoleManager;
-  private knowledgeGraph: KnowledgeGraph;
+  private tasksFile: string;
+  private projectsDir: string;
+  private tasks: Task[] = [];
 
-  /** Hard limit: max concurrent running agents */
-  private static readonly MAX_CONCURRENT_AGENTS = 10;
-
-  constructor(roleManager: RoleManager, knowledgeGraph: KnowledgeGraph) {
-    this.roleManager = roleManager;
-    this.knowledgeGraph = knowledgeGraph;
-    this.taskRunner = new TaskRunner(roleManager, knowledgeGraph);
-    this.diffCapture = new DiffCapture();
+  constructor() {
+    this.tasksFile = process.env.TASKS_FILE || "/home/foreman/tasks.json";
+    this.projectsDir = process.env.PROJECTS_DIR || "/home/foreman/projects";
+    this.loadTasks();
   }
 
-  /**
-   * Count currently running agent tasks
-   */
-  private getRunningCount(): number {
-    let count = 0;
-    for (const task of this.tasks.values()) {
-      if (task.status === 'running') count++;
+  private loadTasks(): void {
+    try {
+      if (existsSync(this.tasksFile)) {
+        const data = readFileSync(this.tasksFile, "utf-8");
+        this.tasks = JSON.parse(data);
+        console.log(`Loaded ${this.tasks.length} tasks from ${this.tasksFile}`);
+      } else {
+        this.tasks = [];
+        this.saveTasks();
+      }
+    } catch (e) {
+      console.error("Failed to load tasks:", e);
+      this.tasks = [];
     }
-    return count;
   }
 
-  /**
-   * Create and start a new task
-   */
-  async createTask(request: CreateTaskRequest): Promise<Task> {
+  private saveTasks(): void {
+    try {
+      writeFileSync(this.tasksFile, JSON.stringify(this.tasks, null, 2));
+    } catch (e) {
+      console.error("Failed to save tasks:", e);
+    }
+  }
+
+  private generateId(): string {
+    return randomBytes(8).toString("base64url");
+  }
+
+  async createTask(body: {
+    project: string;
+    title: string;
+    briefing: string;
+    agent?: string;
+    allowed_files?: string[];
+    blocked_files?: string[];
+    verification?: string;
+  }): Promise<Task> {
     const task: Task = {
-      id: nanoid(12),
-      project: request.project,
-      title: request.title,
-      briefing: request.briefing,
-      allowed_files: request.allowed_files,
-      blocked_files: request.blocked_files || [],
-      verification: request.verification,
-      agent: request.agent || 'augment',
-      role: request.role,
-      status: 'pending',
+      id: this.generateId(),
+      project: body.project,
+      description: body.briefing,
+      status: "pending",
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      output: [],
+      allowed_files: body.allowed_files || [],
+      blocked_files: body.blocked_files || [],
     };
-
-    this.tasks.set(task.id, task);
-
-    // GUARDRAIL: Enforce max concurrent agents
-    const running = this.getRunningCount();
-    if (running >= TaskManager.MAX_CONCURRENT_AGENTS) {
-      task.status = 'failed';
-      task.error = `Concurrency limit reached (${running}/${TaskManager.MAX_CONCURRENT_AGENTS} agents running). Try again later.`;
-      task.updated_at = new Date().toISOString();
-      console.warn(`⛔ Task ${task.id} rejected: ${task.error}`);
-      return task;
-    }
-
-    // Start task execution in background
-    this.executeTask(task).catch((error) => {
-      console.error(`Task ${task.id} failed:`, error);
-      task.status = 'failed';
-      task.error = error.message;
-      task.updated_at = new Date().toISOString();
-    });
-
+    this.tasks.push(task);
+    this.saveTasks();
+    console.log(`Created task ${task.id}: ${body.title}`);
     return task;
   }
 
-  /**
-   * Execute task (runs in background)
-   */
-  private async executeTask(task: Task): Promise<void> {
-    task.status = 'running';
-    task.started_at = new Date().toISOString();
-    task.updated_at = new Date().toISOString();
+  getTasks(): Task[] {
+    return this.tasks;
+  }
 
-    try {
-      // Run the agent
-      const result = await this.taskRunner.runTask(task);
+  listTasks(): Task[] {
+    return this.tasks;
+  }
 
-      task.output = result.output;
-      task.status = 'completed';
-      task.completed_at = new Date().toISOString();
-      task.updated_at = new Date().toISOString();
+  getTask(id: string): Task | undefined {
+    return this.tasks.find((t) => t.id === id);
+  }
 
-      // Capture diff
-      let diff = '';
-      try {
-        diff = await this.diffCapture.captureDiff(task);
-      } catch (e) {
-        console.warn(`⚠️  Failed to capture diff for task ${task.id}:`, e);
+  updateTaskStatus(id: string, status: TaskStatus, data?: Partial<Task>): void {
+    const task = this.tasks.find((t) => t.id === id);
+    if (task) {
+      task.status = status;
+      if (data) {
+        Object.assign(task, data);
       }
-      task.diff = diff;
-
-      // TODO: Run automated review
-      task.status = 'completed'; // Changed from 'reviewing' to 'completed' for testing
-      task.updated_at = new Date().toISOString();
-    } catch (error: any) {
-      task.status = 'failed';
-      task.error = error.message;
-      task.updated_at = new Date().toISOString();
-      throw error;
+      this.saveTasks();
     }
   }
 
-  /**
-   * Get task by ID
-   */
-  async getTask(id: string): Promise<Task | null> {
-    return this.tasks.get(id) || null;
-  }
-
-  /**
-   * Get task diff
-   */
   async getTaskDiff(id: string): Promise<string | null> {
-    const task = this.tasks.get(id);
-    return task?.diff || null;
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return null;
+    return task.diff || null;
   }
 
-  /**
-   * Approve task and commit changes
-   */
-  async approveTask(
-    id: string,
-    request: ApproveRequest
-  ): Promise<{ success: boolean; commit_hash?: string }> {
-    const task = this.tasks.get(id);
-
-    if (!task) {
-      throw new Error('Task not found');
-    }
-
-    if (task.status !== 'reviewing' && task.status !== 'completed') {
-      throw new Error(`Cannot approve task in status: ${task.status}`);
-    }
-
-    // Commit and optionally push
-    const commitHash = await this.diffCapture.commitChanges(
-      task,
-      request.commit_message || task.title
-    );
-
-    if (request.push) {
-      await this.diffCapture.pushChanges(task);
-    }
-
-    task.status = 'approved';
-    task.updated_at = new Date().toISOString();
-
-    return { success: true, commit_hash: commitHash };
+  async approveTask(id: string, body?: { push?: boolean }): Promise<{ success: boolean; message: string }> {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return { success: false, message: "Task not found" };
+    task.status = "completed";
+    task.completed_at = new Date().toISOString();
+    this.saveTasks();
+    return { success: true, message: `Task ${id} approved` };
   }
 
-  /**
-   * Reject task with feedback
-   */
-  async rejectTask(
-    id: string,
-    request: RejectRequest
-  ): Promise<{ success: boolean }> {
-    const task = this.tasks.get(id);
-
-    if (!task) {
-      throw new Error('Task not found');
-    }
-
-    task.status = 'rejected';
-    task.updated_at = new Date().toISOString();
-
-    if (request.retry) {
-      // TODO: Restart task with feedback
-      console.log(`Task ${id} will be retried with feedback: ${request.reason}`);
-    }
-
-    return { success: true };
-  }
-
-  /**
-   * List all tasks
-   */
-  async listTasks(): Promise<Task[]> {
-    return Array.from(this.tasks.values()).sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+  async rejectTask(id: string, body?: { feedback?: string; retry?: boolean }): Promise<{ success: boolean; message: string }> {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return { success: false, message: "Task not found" };
+    task.status = "failed";
+    task.agent_output = body?.feedback || "Rejected";
+    this.saveTasks();
+    return { success: true, message: `Task ${id} rejected` };
   }
 }
-

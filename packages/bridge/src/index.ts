@@ -1,52 +1,109 @@
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import { TaskManager } from './task-manager.js';
+import { TaskRunner } from './task-runner.js';
+import { KanbanCoordinator } from './kanban-coordinator.js';
+import { WebSocketManager } from './websocket.js';
+import { createKanbanRoutes } from './routes/kanban.js';
+
 /**
- * Foreman Bridge - Main HTTP API
+ * Bridge Backend - Integrates WebSocket, QC Runner, and Kanban Coordinator
  */
 
-import { serve } from '@hono/node-server';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
-import { tasksRouter } from './routes/tasks.js';
-import { dagsRouter } from './routes/dags.js';
-import { authMiddleware } from './middleware/auth.js';
-
 const app = new Hono();
+const taskManager = new TaskManager();
+const taskRunner = new TaskRunner();
+const kanbanCoordinator = new KanbanCoordinator();
 
-// Middleware
-app.use('*', logger());
-app.use('*', cors());
+// Wire up TaskRunner events to WebSocket
+taskRunner.on('task:started', (task) => {
+  console.log(`Task started: ${task.id}`);
+  wsManager.broadcast({ type: 'task:started', task });
+});
 
-// Health check
+taskRunner.on('task:updated', (task) => {
+  console.log(`Task updated: ${task.id} - ${task.status}`);
+  wsManager.broadcast({ type: 'task:updated', task });
+});
+
+taskRunner.on('task:completed', (task) => {
+  console.log(`Task completed: ${task.id}`);
+  wsManager.broadcast({ type: 'task:completed', task });
+  
+  // Update Kanban board when task completes
+  if (task.qc_result) {
+    kanbanCoordinator.onTaskCompleted(task.id, {
+      passed: task.qc_result.passed,
+      score: task.qc_result.score,
+      summary: task.qc_result.summary,
+    });
+  }
+});
+
+taskRunner.on('task:failed', (task) => {
+  console.log(`Task failed: ${task.id}`);
+  wsManager.broadcast({ type: 'task:failed', task });
+});
+
+// Wire up KanbanCoordinator events to WebSocket
+kanbanCoordinator.on('card:created', (card) => {
+  console.log(`Card created: ${card.id}`);
+  wsManager.broadcast({ type: 'card:created', card });
+});
+
+kanbanCoordinator.on('card:moved', (event) => {
+  console.log(`Card moved: ${event.card.id} from ${event.from} to ${event.to}`);
+  wsManager.broadcast({ type: 'card:moved', card: event.card, from: event.from, to: event.to });
+});
+
+kanbanCoordinator.on('card:assigned', (card) => {
+  console.log(`Card assigned: ${card.id} to agent ${card.agentId}`);
+  wsManager.broadcast({ type: 'card:assigned', card });
+});
+
+// Health check endpoint
 app.get('/health', (c) => {
-  return c.json({ status: 'ok', service: 'foreman-bridge', version: '0.1.0' });
+  return c.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    websocket_clients: wsManager.getClientCount(),
+  });
 });
 
-// Protected routes
-app.use('/tasks/*', authMiddleware);
-app.route('/tasks', tasksRouter);
-
-app.use('/dags/*', authMiddleware);
-app.route('/dags', dagsRouter);
-
-// 404
-app.notFound((c) => {
-  return c.json({ error: 'Not found' }, 404);
+// Task endpoints
+app.get('/tasks', (c) => {
+  const tasks = taskManager.getTasks();
+  return c.json({ tasks });
 });
 
-// Error handler
-app.onError((err, c) => {
-  console.error('Error:', err);
-  return c.json({ error: err.message || 'Internal server error' }, 500);
+app.get('/tasks/:id', (c) => {
+  const id = c.req.param('id');
+  const task = taskManager.getTask(id);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+  return c.json({ task });
 });
 
-const port = parseInt(process.env.PORT || '3000', 10);
+// Mount Kanban routes
+const kanbanRouter = createKanbanRoutes(kanbanCoordinator);
+app.route('/kanban', kanbanRouter);
 
-console.log(`🏗️  Foreman Bridge starting on port ${port}...`);
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
-serve({
+// Use @hono/node-server's serve which returns the underlying http.Server
+const server = serve({
   fetch: app.fetch,
-  port,
+  port: PORT,
 });
 
-console.log(`✅ Foreman Bridge running on http://localhost:${port}`);
+// Attach WebSocket to the HTTP server
+// serve() returns a Node.js http.Server
+const wsManager = new WebSocketManager(server as any);
+
+console.log(`🏗️  Foreman Bridge running on port ${PORT}`);
+console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);
+
+// Export for testing
+export { app, taskManager, taskRunner, kanbanCoordinator, wsManager };
 

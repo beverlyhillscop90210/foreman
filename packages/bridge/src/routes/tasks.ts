@@ -3,10 +3,16 @@
  */
 
 import { Hono } from 'hono';
-import { taskManager } from '../services.js';
+import { TaskManager } from '../task-manager.js';
 import type { CreateTaskRequest, ApproveRequest, RejectRequest } from '../types.js';
 
 export const tasksRouter = new Hono();
+const taskManager = new TaskManager();
+
+// Export taskManager for WebSocket integration
+export function getTaskManager(): TaskManager {
+  return taskManager;
+}
 
 // POST /tasks - Create new task
 tasksRouter.post('/', async (c) => {

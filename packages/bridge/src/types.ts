@@ -1,165 +1,79 @@
-/**
- * Foreman Bridge types
- */
-
-export interface Task {
-  id: string;
-  project: string;
-  title: string;
-  briefing: string;
-  allowed_files: string[];
-  blocked_files: string[];
-  verification?: string;
-  agent: 'claude-code' | 'augment' | 'custom';
-  role?: string;
-  status: TaskStatus;
-  created_at: string;
-  updated_at: string;
-  started_at?: string;
-  completed_at?: string;
-  output?: string[];
-  diff?: string;
-  review?: ReviewResult;
-  error?: string;
-}
-
 export type TaskStatus =
   | 'pending'
   | 'running'
   | 'completed'
   | 'failed'
   | 'reviewing'
-  | 'approved'
-  | 'rejected';
+  | 'qc_failed';
 
-export interface CreateTaskRequest {
-  project: string;
-  title: string;
-  briefing: string;
-  allowed_files: string[];
-  blocked_files?: string[];
-  verification?: string;
-  agent?: 'claude-code' | 'augment' | 'custom';
-  role?: string;
-}
-
-export interface ReviewResult {
-  status: 'APPROVE' | 'REJECT' | 'REQUEST_CHANGES';
-  reason: string;
-  suggestions?: string[];
-  scope_violations?: string[];
-  build_passed?: boolean;
-  tests_passed?: boolean;
-}
-
-export interface ApproveRequest {
-  commit_message?: string;
-  push?: boolean;
-}
-
-export interface RejectRequest {
-  reason: string;
-  retry?: boolean;
-}
-
-export interface ProjectContext {
-  project: string;
-  stack?: string;
-  architecture?: Record<string, string>;
-  critical_dependencies?: string[];
-  past_incidents?: Incident[];
-  known_good_commits?: Record<string, string>;
-}
-
-export interface Incident {
-  date: string;
-  what: string;
-  impact: string;
-  lesson: string;
-}
-
-export interface FileCheckResult {
-  allowed: boolean;
-  reason?: string;
-  matched_pattern?: string;
-}
-
-export interface DAGDefinition {
+export interface Task {
   id: string;
-  name: string;
+  project: string;
   description: string;
-  project: string;
-  created_by: 'planner' | 'manual';
-  approval_mode: 'per_task' | 'end_only' | 'gate_configured';
-  nodes: DAGNode[];
-  edges: DAGEdge[];
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: TaskStatus;
   created_at: string;
-  updated_at: string;
-}
-
-export interface DAGNode {
-  id: string;
-  type: 'task' | 'gate' | 'planner' | 'merge';
-  role: string;
-  title: string;
-  briefing: string;
-  config: {
-    model?: string;
-    reasoning_effort?: 'low' | 'medium' | 'high';
-    allowed_files?: string[];
-    blocked_files?: string[];
-    risk_tier?: 'low' | 'medium' | 'high' | 'critical';
-    max_retries?: number;
-    timeout_minutes?: number;
-  };
-  gate_config?: {
-    risk_tier: 'low' | 'medium' | 'high' | 'critical';
-    required_checks: string[];
-    auto_approve: boolean;
-    sha_pinned: boolean;
-    remediation_enabled: boolean;
-    max_remediation_loops: number;
-  };
-  status: 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
-  output?: any;
-  error?: string;
   started_at?: string;
   completed_at?: string;
-  updated_at?: string;
-}
-
-export interface RiskTierConfig {
-  rules: {
-    critical: string[];
-    high: string[];
-    medium: string[];
-    low: string[];
-  };
-  gates: {
-    critical: {
-      required_checks: string[];
-      auto_approve: boolean;
-    };
-    high: {
-      required_checks: string[];
-      auto_approve: boolean;
-    };
-    medium: {
-      required_checks: string[];
-      auto_approve: boolean;
-    };
-    low: {
-      required_checks: string[];
-      auto_approve: boolean;
-    };
+  agent_output?: string;
+  diff?: string;
+  allowed_files?: string[];
+  blocked_files?: string[];
+  qc_result?: {
+    passed: boolean;
+    checks: { name: string; passed: boolean; details: string; severity: string }[];
+    summary: string;
+    score: number;
   };
 }
 
-export interface DAGEdge {
-  from: string;
-  to: string;
-  type: 'dependency' | 'data_flow' | 'gate';
-  label?: string;
+/**
+ * Kanban Board Types
+ */
+
+export type KanbanColumn = 'backlog' | 'in_progress' | 'review' | 'commit_review' | 'done';
+
+export interface KanbanCard {
+  id: string;
+  taskId?: string;       // linked foreman task ID
+  title: string;
+  description?: string;
+  column: KanbanColumn;
+  project: string;        // e.g. 'foreman-dashboard', 'zeon-api'
+  agentId?: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  labels: string[];
+  createdAt: string;
+  updatedAt: string;
+  qcResult?: {
+    passed: boolean;
+    score: number;
+    summary: string;
+  };
 }
+
+/**
+ * WebSocket Event Types
+ */
+
+export interface KanbanCardCreatedEvent {
+  type: 'card:created';
+  card: KanbanCard;
+}
+
+export interface KanbanCardMovedEvent {
+  type: 'card:moved';
+  card: KanbanCard;
+  from: KanbanColumn;
+  to: KanbanColumn;
+}
+
+export interface KanbanCardAssignedEvent {
+  type: 'card:assigned';
+  card: KanbanCard;
+}
+
+export type KanbanEvent =
+  | KanbanCardCreatedEvent
+  | KanbanCardMovedEvent
+  | KanbanCardAssignedEvent;
 

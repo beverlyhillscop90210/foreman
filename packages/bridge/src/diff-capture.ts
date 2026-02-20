@@ -4,27 +4,20 @@
 
 import { simpleGit } from 'simple-git';
 import { join } from 'path';
-import { existsSync } from 'fs';
 import type { Task } from './types.js';
 
 export class DiffCapture {
   private projectsDir: string;
 
   constructor() {
-    this.projectsDir = process.env.PROJECTS_DIR || join(process.cwd(), 'projects');
+    this.projectsDir = process.env.PROJECTS_DIR || '/var/foreman/projects';
   }
 
   /**
-   * Capture git diff for a task
+   * Capture diff for a task
    */
   async captureDiff(task: Task): Promise<string> {
     const projectDir = join(this.projectsDir, task.project);
-    
-    if (!existsSync(projectDir)) {
-      console.warn(`⚠️  Project directory not found for diff capture: ${projectDir}`);
-      return '';
-    }
-
     const git = simpleGit(projectDir);
 
     // Get current branch
@@ -38,27 +31,14 @@ export class DiffCapture {
       await git.checkout(['-b', taskBranch]);
     } catch (error) {
       // Branch might already exist
-      try {
-        await git.checkout(taskBranch);
-      } catch (e) {
-        console.warn(`⚠️  Failed to checkout branch ${taskBranch}:`, e);
-      }
+      await git.checkout(taskBranch);
     }
 
     // Stage all changes
-    try {
-      await git.add('.');
-    } catch (e) {
-      console.warn(`⚠️  Failed to stage changes:`, e);
-    }
+    await git.add('.');
 
     // Get diff
-    let diff = '';
-    try {
-      diff = await git.diff(['--cached']);
-    } catch (e) {
-      console.warn(`⚠️  Failed to get diff:`, e);
-    }
+    const diff = await git.diff(['--cached']);
 
     return diff;
   }
@@ -68,11 +48,6 @@ export class DiffCapture {
    */
   async commitChanges(task: Task, message: string): Promise<string> {
     const projectDir = join(this.projectsDir, task.project);
-    
-    if (!existsSync(projectDir)) {
-      throw new Error(`Project directory not found: ${projectDir}`);
-    }
-
     const git = simpleGit(projectDir);
 
     // Commit
@@ -96,11 +71,6 @@ Managed by Foreman Bridge`;
    */
   async pushChanges(task: Task): Promise<void> {
     const projectDir = join(this.projectsDir, task.project);
-    
-    if (!existsSync(projectDir)) {
-      throw new Error(`Project directory not found: ${projectDir}`);
-    }
-
     const git = simpleGit(projectDir);
 
     const taskBranch = `foreman/${task.id}`;
@@ -112,11 +82,6 @@ Managed by Foreman Bridge`;
    */
   async mergeToMain(task: Task): Promise<void> {
     const projectDir = join(this.projectsDir, task.project);
-    
-    if (!existsSync(projectDir)) {
-      throw new Error(`Project directory not found: ${projectDir}`);
-    }
-
     const git = simpleGit(projectDir);
 
     const taskBranch = `foreman/${task.id}`;
