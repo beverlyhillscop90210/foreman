@@ -186,6 +186,7 @@ export const SettingsPage = () => {
   const { envVars, agentConfig, accessControl, rolesConfig, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [openRouterModels, setOpenRouterModels] = useState<{id: string, name: string}[]>([]);
   const toast = useToast();
 
   // Load settings on mount
@@ -198,6 +199,18 @@ export const SettingsPage = () => {
         setCurrentUserEmail(session.user.email);
       }
     });
+
+    // Fetch OpenRouter models
+    fetch('https://openrouter.ai/api/v1/models')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data) {
+          // Sort by name and take the most relevant ones or just all
+          const models = data.data.map((m: any) => ({ id: m.id, name: m.name }));
+          setOpenRouterModels(models);
+        }
+      })
+      .catch(err => console.error('Failed to fetch OpenRouter models:', err));
   }, []);
 
   // Determine user role
@@ -565,10 +578,18 @@ export const SettingsPage = () => {
                           <option value="gpt-4o-mini">gpt-4o-mini</option>
                         </optgroup>
                         <optgroup label="OpenRouter">
-                          <option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet</option>
-                          <option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o</option>
-                          <option value="openrouter/google/gemini-1.5-pro">openrouter/google/gemini-1.5-pro</option>
-                          <option value="openrouter/meta-llama/llama-3.1-405b-instruct">openrouter/meta-llama/llama-3.1-405b-instruct</option>
+                          {openRouterModels.length > 0 ? (
+                            openRouterModels.map(m => (
+                              <option key={m.id} value={m.id}>{m.name} ({m.id})</option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet</option>
+                              <option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o</option>
+                              <option value="openrouter/google/gemini-1.5-pro">openrouter/google/gemini-1.5-pro</option>
+                              <option value="openrouter/meta-llama/llama-3.1-405b-instruct">openrouter/meta-llama/llama-3.1-405b-instruct</option>
+                            </>
+                          )}
                         </optgroup>
                       </select>
                     </div>

@@ -174,7 +174,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         loadedEnvVars.forEach((loadedVar: EnvVar) => {
           const index = mergedEnvVars.findIndex(v => v.key === loadedVar.key);
           if (index >= 0) {
-            mergedEnvVars[index] = loadedVar;
+            // Force update OPENROUTER_API_KEY if it's empty or the old placeholder
+            if (loadedVar.key === 'OPENROUTER_API_KEY' && (!loadedVar.value || loadedVar.value.includes('xxxxxxxx'))) {
+              mergedEnvVars[index].value = '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';
+            } else {
+              mergedEnvVars[index] = loadedVar;
+            }
           } else {
             mergedEnvVars.push(loadedVar);
           }
@@ -259,7 +264,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           loadedEnvVars.forEach((loadedVar: EnvVar) => {
             const index = newEnvVars.findIndex(v => v.key === loadedVar.key && !v.userEmail);
             if (index >= 0) {
-              newEnvVars[index] = loadedVar;
+              if (loadedVar.key === 'OPENROUTER_API_KEY' && (!loadedVar.value || loadedVar.value.includes('xxxxxxxx'))) {
+                newEnvVars[index].value = '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';
+              } else {
+                newEnvVars[index] = loadedVar;
+              }
             } else {
               newEnvVars.push(loadedVar);
             }
