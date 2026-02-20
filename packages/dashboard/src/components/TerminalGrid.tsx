@@ -1,4 +1,3 @@
-import React from "react";
 import { Terminal as TerminalIcon, Maximize2, X, Minus } from "lucide-react";
 
 export function TerminalGrid() {

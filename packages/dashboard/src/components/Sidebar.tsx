@@ -1,4 +1,3 @@
-import React from "react";
 import { Activity, Terminal, LayoutDashboard, Database, Settings } from "lucide-react";
 
 export function Sidebar() {
