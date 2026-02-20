@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.9",
+    "@supabase/supabase-js": "^2.97.0",
     "hono": "^4.11.9",
     "minimatch": "^10.2.1",
     "simple-git": "^3.31.1",
