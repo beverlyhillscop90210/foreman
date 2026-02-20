@@ -7,23 +7,61 @@ import { KanbanPage } from './pages/KanbanPage';
 import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useTerminalStore } from './stores/terminalStore';
+import { useSettingsStore } from './stores/settingsStore';
 import { supabase } from './lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const initialize = useTerminalStore(state => state.initialize);
+  const { syncWithAPI } = useSettingsStore();
 
   // Check authentication
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    const checkAuth = async () => {
+      await syncWithAPI();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user?.email) {
+        const email = session.user.email;
+        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io';
+        const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
+        
+        if (!isAllowed) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setAccessDenied(true);
+        } else {
+          setSession(session);
+          setAccessDenied(false);
+        }
+      } else {
+        setSession(null);
+      }
       setLoading(false);
-    });
+    };
+    
+    checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user?.email) {
+        const email = session.user.email;
+        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io';
+        const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
+        
+        if (!isAllowed) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setAccessDenied(true);
+        } else {
+          setSession(session);
+          setAccessDenied(false);
+        }
+      } else {
+        setSession(null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -41,7 +79,16 @@ function App() {
   }
 
   if (!session) {
-    return <LoginPage />;
+    return (
+      <>
+        {accessDenied && (
+          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded shadow-lg z-50 font-sans text-sm">
+            Access denied. Contact admin for an invite.
+          </div>
+        )}
+        <LoginPage />
+      </>
+    );
   }
 
   return (

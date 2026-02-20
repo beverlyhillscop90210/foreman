@@ -142,7 +142,7 @@ app.post('/chat', async (c) => {
     }
 
     const data = await response.json() as any;
-    return c.json({ content: data.choices[0].message.content });
+    return c.json({ content: (data as any).choices[0].message.content });
   } catch (error) {
     console.error('Chat error:', error);
     return c.json({ error: 'Internal server error' }, 500);

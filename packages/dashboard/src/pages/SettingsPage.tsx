@@ -218,7 +218,7 @@ export const SettingsPage = () => {
     ? accessControl.users?.find(u => u.email === currentUserEmail)?.role || 'User'
     : 'User';
   
-  const isAdmin = currentUserRole === 'Super Admin' || currentUserRole === 'Admin';
+  const isAdmin = !currentUserEmail || currentUserRole === 'Super Admin' || currentUserRole === 'Admin';
 
   // Filter env vars based on role
   // Admins see everything. Users only see their own keys.
@@ -347,14 +347,13 @@ export const SettingsPage = () => {
         </section>
 
         {/* Agent Configuration Section */}
-        {isAdmin && (
-          <section className="mb-8">
-            <div className="mb-3">
-              <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Agent Configuration</h2>
-              <p className="font-sans text-xs text-foreman-text opacity-70">
-                Configure default agent behavior and limits
-              </p>
-            </div>
+        <section className="mb-8">
+          <div className="mb-3">
+            <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Agent Configuration</h2>
+            <p className="font-sans text-xs text-foreman-text opacity-70">
+              Global settings for agent behavior and limits
+            </p>
+          </div>
 
             <div className="bg-foreman-bg-dark border border-foreman-border p-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -410,18 +409,16 @@ export const SettingsPage = () => {
                 </button>
               </div>
             </div>
-          </section>
-        )}
+        </section>
 
         {/* Access Control Section */}
-        {isAdmin && (
-          <section className="mb-8">
-            <div className="mb-3">
-              <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Access Control</h2>
-              <p className="font-sans text-xs text-foreman-text opacity-70">
-                Manage who can access the dashboard and who has admin rights
-              </p>
-            </div>
+        <section className="mb-8">
+          <div className="mb-3">
+            <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Access Control</h2>
+            <p className="font-sans text-xs text-foreman-text opacity-70">
+              Manage who can access the dashboard and who has admin rights
+            </p>
+          </div>
 
             <div className="bg-foreman-bg-dark border border-foreman-border overflow-hidden">
               <table className="w-full">
@@ -540,17 +537,15 @@ export const SettingsPage = () => {
                 </tbody>
               </table>
             </div>
-          </section>
-        )}
+        </section>
 
         {/* Role Configuration Section */}
-        {isAdmin && (
-          <section className="mb-8">
-            <div className="mb-3">
-              <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Role Configuration</h2>
-              <p className="font-sans text-xs text-foreman-text opacity-70">
-                Configure the model and system prompt for each agent role
-              </p>
+        <section className="mb-8">
+          <div className="mb-3">
+            <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Role Configuration</h2>
+            <p className="font-sans text-xs text-foreman-text opacity-70">
+              Configure the model and system prompt for each agent role
+            </p>
             </div>
 
             <div className="space-y-4">
@@ -655,8 +650,7 @@ export const SettingsPage = () => {
                 </div>
               ))}
             </div>
-          </section>
-        )}
+        </section>
       </div>
     </div>
   );
