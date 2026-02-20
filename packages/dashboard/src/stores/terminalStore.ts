@@ -219,9 +219,13 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       console.log('[TerminalStore] Initializing from API...');
 
       // Fetch tasks
-      const tasks = await api.getTasks();
-
-      console.log('[TerminalStore] Loaded', tasks.length, 'tasks');
+      let tasks: Task[] = [];
+      try {
+        tasks = await api.getTasks();
+        console.log('[TerminalStore] Loaded', tasks.length, 'tasks');
+      } catch (apiError) {
+        console.warn('[TerminalStore] Failed to fetch tasks from API, continuing with empty tasks:', apiError);
+      }
 
       // Convert tasks to agents
       const agents = tasks.map(taskToAgent);
@@ -235,10 +239,14 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       });
 
       // Connect to WebSocket
-      wsClient.connect();
-      wsClient.onMessage((message) => {
-        get().handleWebSocketMessage(message);
-      });
+      try {
+        wsClient.connect();
+        wsClient.onMessage((message) => {
+          get().handleWebSocketMessage(message);
+        });
+      } catch (wsError) {
+        console.warn('[TerminalStore] Failed to connect to WebSocket:', wsError);
+      }
 
       // Start polling for updates every 5 seconds
       get().startPolling();

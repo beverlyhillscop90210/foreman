@@ -21,7 +21,12 @@ function App() {
   // Check authentication
   useEffect(() => {
     const checkAuth = async () => {
-      await syncWithAPI();
+      try {
+        await syncWithAPI();
+      } catch (e) {
+        console.error("Failed to sync with API", e);
+      }
+      
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user?.email) {

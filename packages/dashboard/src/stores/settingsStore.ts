@@ -257,7 +257,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       let newAccessControl = DEFAULT_ACCESS_CONTROL;
       let newRolesConfig = DEFAULT_ROLES_CONFIG;
 
-      if (globalSettings) {
+      if (globalSettings && Array.isArray(globalSettings)) {
         const envVarsSetting = globalSettings.find(s => s.key === 'envVars');
         if (envVarsSetting) {
           const loadedEnvVars = envVarsSetting.value || [];
@@ -285,7 +285,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         if (rolesConfigSetting) newRolesConfig = rolesConfigSetting.value;
       }
 
-      if (userSettings) {
+      if (userSettings && Array.isArray(userSettings)) {
         const userEnvVarsSetting = userSettings.find(s => s.key === 'envVars');
         if (userEnvVarsSetting) {
           // Merge user env vars
