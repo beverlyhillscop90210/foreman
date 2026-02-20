@@ -55,8 +55,12 @@ export class KanbanCoordinator extends EventEmitter {
         card.qcResult = qcResult;
         if (qcResult?.passed) {
           card.column = 'commit_review';
+          // Simulate QC Agent notifying Claude via MCP
+          console.log(`[QC Agent] Task ${taskId} passed QC. Notifying Claude via MCP for final approval.`);
         } else {
           card.column = 'review'; // needs manual review
+          // Simulate QC Agent reassigning task
+          console.log(`[QC Agent] Task ${taskId} failed QC. Reassigning to a new agent.`);
         }
         card.updatedAt = new Date().toISOString();
         this.emit('card:moved', { card, from: 'in_progress', to: card.column });

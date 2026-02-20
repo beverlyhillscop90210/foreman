@@ -238,8 +238,22 @@ export const SettingsPage = () => {
       try {
         await api.getHealth(); // Test if API is available
 
-        // If API is available, save all env vars
-        for (const envVar of envVars) {
+        // Merge keys: start with global keys, then override with user's keys
+        const globalKeys = envVars.filter(v => !v.userEmail);
+        const userKeys = envVars.filter(v => v.userEmail === currentUserEmail);
+        
+        const mergedKeys = [...globalKeys];
+        userKeys.forEach(uk => {
+          const index = mergedKeys.findIndex(gk => gk.key === uk.key);
+          if (index >= 0) {
+            mergedKeys[index] = uk;
+          } else {
+            mergedKeys.push(uk);
+          }
+        });
+
+        // If API is available, save merged env vars
+        for (const envVar of mergedKeys) {
           await api.setConfig(envVar.key, {
             value: envVar.value,
             category: envVar.category,

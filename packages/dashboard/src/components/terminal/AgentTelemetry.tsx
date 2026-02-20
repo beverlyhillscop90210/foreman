@@ -59,6 +59,11 @@ export const AgentTelemetry = ({ agent }: AgentTelemetryProps) => {
         <div className="font-mono text-[10px] text-foreman-text uppercase tracking-wider mb-1">Languages</div>
         <div className="font-mono text-sm text-foreman-text">N/A</div>
       </div>
+
+      <div className="bg-foreman-bg-medium border border-foreman-border p-3 rounded opacity-50">
+        <div className="font-mono text-[10px] text-foreman-text uppercase tracking-wider mb-1">System Prompt</div>
+        <div className="font-mono text-xs text-foreman-text line-clamp-3">N/A</div>
+      </div>
     </div>
   );
 };

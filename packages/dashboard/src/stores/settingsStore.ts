@@ -80,6 +80,7 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
 
 const DEFAULT_ACCESS_CONTROL: AccessControl = {
   users: [
+    { email: 'peter@beverlyhillscop.io', name: 'Peter Schings', role: 'Super Admin' },
     { email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' }
   ]
 };
@@ -96,7 +97,7 @@ const MOCK_ENV_VARS: EnvVar[] = [
   { key: 'GITHUB_TOKEN', value: 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', category: 'Authentication', masked: true },
   { key: 'AUGMENT_API_KEY', value: 'aug_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', category: 'API Keys', masked: true },
   { key: 'ANTHROPIC_API_KEY', value: 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', category: 'API Keys', masked: true },
-  { key: 'OPENROUTER_API_KEY', value: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', category: 'API Keys', masked: true },
+  { key: 'OPENROUTER_API_KEY', value: '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', category: 'API Keys', masked: true },
   { key: 'ZEON_API_URL', value: 'https://api.zeon.dev/v1', category: 'Configuration', masked: false },
   { key: 'FOREMAN_MASTER_KEY', value: 'fmk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', category: 'Authentication', masked: true },
   { key: 'WEBHOOK_URL', value: 'https://hooks.foreman.dev/events', category: 'Configuration', masked: false },
@@ -189,8 +190,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             role: loadedAccessControl.adminEmails?.includes(email) ? 'Admin' : 'User'
           }));
           // Ensure Peter is Super Admin
-          const peter = users.find((u: any) => u.email === 'peterschings@gmail.com');
-          if (peter) peter.role = 'Super Admin';
+          const peter1 = users.find((u: any) => u.email === 'peter@beverlyhillscop.io');
+          if (peter1) peter1.role = 'Super Admin';
+          else users.push({ email: 'peter@beverlyhillscop.io', name: 'Peter Schings', role: 'Super Admin' });
+
+          const peter2 = users.find((u: any) => u.email === 'peterschings@gmail.com');
+          if (peter2) peter2.role = 'Super Admin';
           else users.push({ email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' });
           
           loadedAccessControl = { users };

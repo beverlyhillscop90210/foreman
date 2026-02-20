@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { ConfigService } from '../services/config.js';
 
 const configRouter = new Hono();
-let configService: ConfigService;
+export let configService: ConfigService;
 
 // Initialize config service
 export async function initConfigService() {

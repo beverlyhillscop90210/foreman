@@ -6,7 +6,7 @@ import { TaskRunner } from './task-runner.js';
 import { KanbanCoordinator } from './kanban-coordinator.js';
 import { WebSocketManager } from './websocket.js';
 import { createKanbanRoutes } from './routes/kanban.js';
-import { configRouter, initConfigService } from './routes/config.js';
+import { configRouter, initConfigService, configService } from './routes/config.js';
 
 /**
  * Bridge Backend - Integrates WebSocket, QC Runner, and Kanban Coordinator
@@ -98,6 +98,47 @@ app.get('/tasks/:id', (c) => {
 // Mount Kanban routes
 const kanbanRouter = createKanbanRoutes(kanbanCoordinator);
 app.route('/kanban', kanbanRouter);
+
+// Chat endpoint for Smartass
+app.post('/chat', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { message, history } = body;
+    
+    const apiKeyEntry = await configService.getConfig('OPENROUTER_API_KEY', true);
+    if (!apiKeyEntry || !apiKeyEntry.value) {
+      return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKeyEntry.value}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openrouter/anthropic/claude-3.5-sonnet',
+        messages: [
+          { role: 'system', content: 'You are Smartass, an expert AI assistant for the Foreman project. You help the user with their tasks, knowledge base, and project management.' },
+          ...(history || []),
+          { role: 'user', content: message }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenRouter API error:', errorText);
+      return c.json({ error: `OpenRouter API error: ${response.statusText}` }, 500);
+    }
+
+    const data = await response.json() as any;
+    return c.json({ content: data.choices[0].message.content });
+  } catch (error) {
+    console.error('Chat error:', error);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
 
 // Mount Config routes
 app.route('/config', configRouter);
