@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useChatStore } from "../../stores/chatStore";
 
-const API_URL = import.meta.env.VITE_BRIDGE_URL || "https://foreman.beverlyhillscop.io";
+const API_URL = import.meta.env.VITE_BRIDGE_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://foreman.beverlyhillscop.io');
 const API_TOKEN = import.meta.env.VITE_BRIDGE_TOKEN || "1ba489d45352894d3b6b74121a498a826cf8252490119d29127add4d0c00c4e3";
 
 export const ChatPanel = () => {
