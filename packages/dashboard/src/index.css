@@ -1,18 +1,40 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
-  --color-background: #0a0a0a;
-  --color-surface: #111111;
-  --color-accent: #FF6B2B;
-  --color-text-primary: #e5e5e5;
-  --color-text-muted: #888888;
-  --color-border: #333333;
-  --font-mono: "JetBrains Mono", monospace;
-  --font-sans: "Inter", sans-serif;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-  background-color: var(--color-background);
-  color: var(--color-text-primary);
-  font-family: var(--font-sans);
+  font-family: 'Inter', sans-serif;
+  background-color: #0a0a0a;
+  color: #e5e5e5;
+  overflow: hidden;
 }
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Layout Stability Rules */
+/* Prevent layout shifts by using transform/opacity for transitions */
+* {
+  transition-property: transform, opacity, color, background-color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Disable width/height transitions globally */
+*:not(.allow-size-transition) {
+  transition-property: transform, opacity, color, background-color, border-color !important;
+}
+
+/* Ensure all containers have explicit sizing */
+.w-full, .h-full, .flex-1 {
+  contain: layout;
+}
+

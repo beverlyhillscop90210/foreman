@@ -1,47 +1,48 @@
-import { useState, useEffect } from "react";
-import { Sidebar } from "./components/Sidebar";
-import { TerminalGrid } from "./components/TerminalGrid";
-import { BottomBar } from "./components/BottomBar";
-import { Login } from "./components/Login";
-import { supabase } from "./lib/supabase";
-import type { Session } from "@supabase/supabase-js";
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { LoginPage } from './components/auth/LoginPage';
+import { Layout } from './components/layout/Layout';
+import { DashboardPage } from './pages/DashboardPage';
+import { KanbanPage } from './pages/KanbanPage';
+import { KnowledgePage } from './pages/KnowledgePage';
+import { SettingsPage } from './pages/SettingsPage';
+import { useTerminalStore } from './stores/terminalStore';
 
 function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const initialize = useTerminalStore(state => state.initialize);
 
+  // Check authentication
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    const auth = localStorage.getItem('foreman_auth');
+    setIsAuthenticated(auth === 'true');
   }, []);
 
-  if (loading) {
-    return <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center text-[var(--color-accent)]">Loading...</div>;
-  }
+  // Initialize real data from API
+  useEffect(() => {
+    if (isAuthenticated) {
+      initialize();
+    }
+  }, [isAuthenticated, initialize]);
 
-  if (!session) {
-    return <Login />;
+  if (!isAuthenticated) {
+    return <LoginPage />;
   }
 
   return (
-    <div className="h-screen w-screen bg-[var(--color-background)] text-[var(--color-text-primary)] flex flex-col overflow-hidden">
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <TerminalGrid />
-        </main>
-      </div>
-      <BottomBar />
-    </div>
+    <BrowserRouter>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/kanban" element={<KanbanPage />} />
+          <Route path="/knowledge" element={<KnowledgePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </BrowserRouter>
   );
 }
 
 export default App;
+
