@@ -183,7 +183,7 @@ const AddVariableForm = ({ onAdd, onCancel }: { onAdd: (envVar: EnvVar) => void;
 
 export const SettingsPage = () => {
   const { setMaxAgents } = useTerminalStore();
-  const { envVars, agentConfig, accessControl, rolesConfig, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig, saveToLocalStorage } = useSettingsStore();
+  const { envVars, agentConfig, accessControl, rolesConfig, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const toast = useToast();
@@ -578,17 +578,61 @@ export const SettingsPage = () => {
                     </div>
 
                     <div>
-                      <label className="block font-mono text-sm text-foreman-text mb-2">
-                        System Prompt
-                      </label>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block font-mono text-sm text-foreman-text">
+                          System Prompt
+                        </label>
+                        <select
+                          value={role.activePromptUserEmail || currentUserEmail || ''}
+                          onChange={(e) => updateRoleConfig(role.id, { activePromptUserEmail: e.target.value })}
+                          className="bg-foreman-bg-deep border border-foreman-border text-foreman-text
+                                     font-sans text-xs px-2 py-1 focus:outline-none focus:border-foreman-orange"
+                        >
+                          {role.systemPrompts?.map(p => (
+                            <option key={p.userEmail} value={p.userEmail}>
+                              {p.userName} ({p.userEmail})
+                            </option>
+                          ))}
+                          {(!role.systemPrompts?.find(p => p.userEmail === currentUserEmail) && currentUserEmail) && (
+                            <option value={currentUserEmail}>
+                              My Prompt (New)
+                            </option>
+                          )}
+                        </select>
+                      </div>
                       <textarea
-                        value={role.systemPrompt}
-                        onChange={(e) => updateRoleConfig(role.id, { systemPrompt: e.target.value })}
+                        value={role.systemPrompts?.find(p => p.userEmail === role.activePromptUserEmail)?.prompt || ''}
+                        onChange={(e) => {
+                          const newPrompts = [...(role.systemPrompts || [])];
+                          const promptIndex = newPrompts.findIndex(p => p.userEmail === currentUserEmail);
+                          
+                          if (promptIndex >= 0) {
+                            newPrompts[promptIndex].prompt = e.target.value;
+                          } else if (currentUserEmail) {
+                            newPrompts.push({
+                              userEmail: currentUserEmail,
+                              userName: accessControl.users?.find(u => u.email === currentUserEmail)?.name || 'Unknown',
+                              prompt: e.target.value
+                            });
+                          }
+                          
+                          updateRoleConfig(role.id, { 
+                            systemPrompts: newPrompts,
+                            activePromptUserEmail: currentUserEmail || role.activePromptUserEmail
+                          });
+                        }}
+                        disabled={role.activePromptUserEmail !== currentUserEmail}
                         rows={4}
-                        className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
-                                   font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                        className={`w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                                   font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange
+                                   ${role.activePromptUserEmail !== currentUserEmail ? 'opacity-50 cursor-not-allowed' : ''}`}
                         placeholder="Enter the system prompt for this role..."
                       />
+                      {role.activePromptUserEmail !== currentUserEmail && (
+                        <p className="text-xs text-foreman-text opacity-70 mt-1">
+                          You are viewing another user's prompt. Switch to your prompt to edit.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
