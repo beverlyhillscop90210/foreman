@@ -41,7 +41,7 @@ function taskToAgent(task: Task): Agent {
     agentStatus = 'idle';
   } else if (task.status === 'running') {
     agentStatus = 'running';
-  } else if (task.status === 'approved' || task.status === 'reviewing') {
+  } else if (task.status === 'approved' || task.status === 'reviewing' || task.status === 'completed') {
     agentStatus = 'completed';
   } else {
     agentStatus = 'failed';

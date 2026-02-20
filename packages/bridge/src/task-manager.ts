@@ -57,8 +57,11 @@ export class TaskManager {
       title: body.title,
       project: body.project,
       description: body.description || body.briefing || '',
+      briefing: body.briefing || body.description || '',
+      agent: body.agent || 'claude-code',
       status: "pending",
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       allowed_files: body.allowed_files || [],
       blocked_files: body.blocked_files || [],
     };
@@ -84,6 +87,7 @@ export class TaskManager {
     const task = this.tasks.find((t) => t.id === id);
     if (task) {
       task.status = status;
+      task.updated_at = new Date().toISOString();
       if (data) {
         Object.assign(task, data);
       }

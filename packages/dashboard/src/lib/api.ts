@@ -5,7 +5,7 @@ const AUTH_TOKEN = import.meta.env.VITE_BRIDGE_TOKEN || '1ba489d45352894d3b6b741
 export interface Task {
   id: string;
   title: string;
-  status: 'pending' | 'running' | 'reviewing' | 'approved' | 'rejected' | 'failed';
+  status: 'pending' | 'running' | 'reviewing' | 'approved' | 'rejected' | 'failed' | 'completed' | 'qc_failed';
   agent: string;
   model?: string;
   project: string;
@@ -106,6 +106,13 @@ class BridgeAPI {
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
     return response.text();
+  }
+
+  // Start task
+  async startTask(id: string): Promise<{ success: boolean; message: string }> {
+    return this.fetch<{ success: boolean; message: string }>(`/tasks/${id}/start`, {
+      method: 'POST',
+    });
   }
 
   // Approve task

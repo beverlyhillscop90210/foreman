@@ -23,9 +23,11 @@ function mapTaskStatus(apiStatus: Task['status']): KanbanStatus {
     case 'reviewing':
       return 'review';
     case 'approved':
+    case 'completed':
       return 'done';
     case 'rejected':
     case 'failed':
+    case 'qc_failed':
       return 'backlog';
     default:
       return 'backlog';
@@ -37,11 +39,11 @@ function calculateElapsedTime(task: Task): string {
   const now = Date.now();
   let startTime: number;
 
-  // For completed/approved/reviewing tasks, use updated_at as completion time
-  if (task.status === 'approved' || task.status === 'reviewing') {
-    const completedTime = new Date(task.updated_at).getTime();
+  // For completed/approved/reviewing/failed/rejected tasks, use updated_at as completion time
+  if (task.status === 'approved' || task.status === 'reviewing' || task.status === 'completed' || task.status === 'failed' || task.status === 'rejected') {
+    const completedTime = new Date(task.updated_at || task.created_at).getTime();
     startTime = task.started_at ? new Date(task.started_at).getTime() : new Date(task.created_at).getTime();
-    const elapsed = completedTime - startTime;
+    const elapsed = Math.max(0, completedTime - startTime);
     return formatDuration(elapsed);
   } else if (task.started_at) {
     // Task is running, show time since started

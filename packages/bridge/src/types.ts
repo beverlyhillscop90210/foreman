@@ -11,11 +11,16 @@ export interface Task {
   title?: string;
   project: string;
   description: string;
+  briefing?: string;
+  agent?: string;
+  model?: string;
   status: TaskStatus;
   created_at: string;
+  updated_at?: string;
   started_at?: string;
   completed_at?: string;
   agent_output?: string;
+  output?: any[];
   diff?: string;
   allowed_files?: string[];
   blocked_files?: string[];

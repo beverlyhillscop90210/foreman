@@ -7,7 +7,8 @@ export const Sidebar = () => {
 
   // Group agents by status
   const activeAgents = useMemo(() => agents.filter(a => a.status === 'running'), [agents]);
-  const pastAgents = useMemo(() => agents.filter(a => a.status !== 'running'), [agents]);
+  const queuedAgents = useMemo(() => agents.filter(a => a.status === 'idle'), [agents]);
+  const pastAgents = useMemo(() => agents.filter(a => a.status === 'completed' || a.status === 'failed'), [agents]);
 
   if (isCollapsed) {
     return (
@@ -68,9 +69,36 @@ export const Sidebar = () => {
           )}
         </div>
 
+        {/* Queued Agents */}
+        <div className="px-3 py-2 mt-4">
+          <h3 className="font-mono text-xs text-foreman-text opacity-50 uppercase tracking-wider mb-2">Backlog</h3>
+          {queuedAgents.length === 0 ? (
+            <div className="text-xs text-foreman-text opacity-30 italic px-2">No queued tasks</div>
+          ) : (
+            queuedAgents.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => setSelectedProject(agent.id)}
+                className={`w-full px-3 py-2 text-left rounded mb-1 hover:bg-foreman-bg-medium
+                            ${selectedProject === agent.id ? 'bg-foreman-bg-medium border-l-2 border-l-foreman-orange' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-sans text-xs text-foreman-text font-medium truncate pr-2">{agent.taskTitle}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+                  <span className="font-mono text-[10px] text-foreman-text opacity-50 truncate">
+                    {agent.bucket}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
         {/* Past Agents */}
         <div className="px-3 py-2 mt-4">
-          <h3 className="font-mono text-xs text-foreman-text opacity-50 uppercase tracking-wider mb-2">Past</h3>
+          <h3 className="font-mono text-xs text-foreman-text opacity-50 uppercase tracking-wider mb-2">History</h3>
           {pastAgents.length === 0 ? (
             <div className="text-xs text-foreman-text opacity-30 italic px-2">No past agents</div>
           ) : (

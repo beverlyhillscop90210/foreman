@@ -64,6 +64,28 @@ tasksRouter.get('/:id/diff', async (c) => {
   return c.text(diff);
 });
 
+// POST /tasks/:id/start - Start a task
+tasksRouter.post('/:id/start', async (c) => {
+  const id = c.req.param('id');
+  const task = await taskManager.getTask(id);
+
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+
+  if (task.status !== 'pending') {
+    return c.json({ error: 'Task is not in pending state' }, 400);
+  }
+
+  // Import taskRunner dynamically or get it from somewhere
+  // Actually, we can just emit an event or use the global taskRunner
+  // Since taskRunner is exported from index.ts, we can import it
+  const { taskRunner } = await import('../index.js');
+  taskRunner.runTask(task).catch(err => console.error('Failed to run task:', err));
+
+  return c.json({ success: true, message: 'Task started' });
+});
+
 // POST /tasks/:id/approve - Approve and commit
 tasksRouter.post('/:id/approve', async (c) => {
   const id = c.req.param('id');

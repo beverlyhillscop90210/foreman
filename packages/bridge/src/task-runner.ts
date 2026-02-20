@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
 import { join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+import { platform } from 'os';
 import type { Task, TaskStatus } from './types.js';
 
 /**
@@ -29,10 +31,10 @@ export class TaskRunner extends EventEmitter {
     let command = '';
     let args: string[] = [];
 
-    if (task.agent === 'claude-code') {
+    if (task.agent === 'claude-code' || task.agent === 'claude') {
       command = 'claude';
-      args = ['-p', task.briefing || task.description || task.title || ''];
-    } else if (task.agent === 'augment') {
+      args = ['-p', '--dangerously-skip-permissions', task.briefing || task.description || task.title || ''];
+    } else if (task.agent === 'augment' || task.agent === 'augment-agent') {
       command = 'augment';
       args = ['run', task.briefing || task.description || task.title || ''];
     } else {
@@ -46,17 +48,52 @@ export class TaskRunner extends EventEmitter {
     const projectsDir = process.env.PROJECTS_DIR || '/home/foreman/projects';
     const projectDir = join(projectsDir, task.project);
 
+    // Ensure the project directory exists before spawning
+    if (!existsSync(projectDir)) {
+      try {
+        mkdirSync(projectDir, { recursive: true });
+        this.emit('task:output', { taskId: task.id, line: `Created project directory: ${projectDir}`, stream: 'system' });
+      } catch (err: any) {
+        this.emit('task:output', { taskId: task.id, line: `Failed to create project directory: ${err.message}`, stream: 'stderr' });
+      }
+    }
+
+    // On Linux, claude CLI needs a pseudo-TTY to run in headless mode.
+    // Wrap the command with `script -qc` to supply one.
+    let spawnCommand: string;
+    let spawnArgs: string[];
+    const isLinuxClaude = platform() === 'linux' && (command === 'claude');
+    
+    if (isLinuxClaude) {
+      // Build the full command string, properly quoted for the shell
+      const escapedArgs = args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+      const fullCmd = `${command} ${escapedArgs}`;
+      // Pass the whole thing as a single shell command
+      spawnCommand = `script -qc ${JSON.stringify(fullCmd)} /dev/null`;
+      spawnArgs = [];
+      this.emit('task:output', { taskId: task.id, line: `Using pseudo-TTY wrapper for headless execution`, stream: 'system' });
+    } else {
+      spawnCommand = command;
+      spawnArgs = args;
+    }
+
     try {
-      const child = spawn(command, args, {
+      const child = spawn(spawnCommand, spawnArgs, {
         cwd: projectDir,
-        shell: true, // Use shell to allow for command resolution
+        shell: true,
+        env: {
+          ...process.env,
+          HOME: process.env.HOME || '/home/foreman',
+        },
       });
 
       child.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');
         for (const line of lines) {
-          if (line.trim()) {
-            this.emit('task:output', { taskId: task.id, line, stream: 'stdout' });
+          // Strip ANSI escape codes and carriage returns (from pseudo-TTY wrapper)
+          const cleaned = line.replace(/\x1b\[[^m]*m|\x1b\[\?[0-9;]*[hl]|\x1b\][^\x07]*\x07|\x1b\[<[^\n]*|\r/g, '').trim();
+          if (cleaned) {
+            this.emit('task:output', { taskId: task.id, line: cleaned, stream: 'stdout' });
           }
         }
       });

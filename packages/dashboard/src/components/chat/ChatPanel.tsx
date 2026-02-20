@@ -7,7 +7,8 @@ const API_TOKEN = import.meta.env.VITE_BRIDGE_TOKEN || "1ba489d45352894d3b6b7412
 export const ChatPanel = () => {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { messages, isLoading, addMessage, setLoading } = useChatStore();
+  const { isLoading, addMessage, setLoading, currentUserEmail, messagesByUser } = useChatStore();
+  const messages = currentUserEmail ? (messagesByUser[currentUserEmail] || []) : [];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -89,15 +90,40 @@ export const ChatPanel = () => {
         <div ref={messagesEndRef} />
       </div>
       <div className="p-2 border-t border-[#333]">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyPress}
-          placeholder="Ask Smartass..."
-          disabled={isLoading}
-          className="w-full bg-[#0a0a0a] border border-[#333] text-[#e0e0e0] placeholder-[#555] font-mono text-xs px-2 py-1.5 focus:outline-none focus:border-[#FF6B2B] disabled:opacity-50"
-        />
+        <div className="flex items-center gap-2 bg-[#0a0a0a] border border-[#333] px-2 py-1.5 focus-within:border-[#FF6B2B] transition-colors">
+          <button 
+            className="text-[#555] hover:text-[#FF6B2B] transition-colors disabled:opacity-50"
+            disabled={isLoading}
+            title="Upload Image"
+            onClick={() => alert("Image upload coming soon!")}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+          </button>
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyPress}
+            placeholder="Ask Smartass..."
+            disabled={isLoading}
+            className="flex-1 bg-transparent text-[#e0e0e0] placeholder-[#555] font-mono text-xs focus:outline-none disabled:opacity-50"
+          />
+          <button 
+            className="text-[#555] hover:text-[#FF6B2B] transition-colors disabled:opacity-50"
+            disabled={isLoading || !inputValue.trim()}
+            onClick={handleSend}
+            title="Send Message"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );

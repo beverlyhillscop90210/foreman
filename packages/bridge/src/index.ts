@@ -6,6 +6,8 @@ import { TaskRunner } from './task-runner.js';
 import { KanbanCoordinator } from './kanban-coordinator.js';
 import { WebSocketManager } from './websocket.js';
 import { createKanbanRoutes } from './routes/kanban.js';
+import { createKnowledgeRoutes } from './routes/knowledge.js';
+import { KnowledgeService } from './services/knowledge.js';
 import { configRouter, initConfigService, configService } from './routes/config.js';
 
 /**
@@ -24,22 +26,26 @@ app.use('/*', cors({
 const taskManager = new TaskManager();
 const taskRunner = new TaskRunner();
 const kanbanCoordinator = new KanbanCoordinator();
+const knowledgeService = new KnowledgeService();
 
 // Wire up TaskRunner events to WebSocket
 taskRunner.on('task:started', (task) => {
   console.log(`Task started: ${task.id}`);
-  wsManager.broadcast({ type: 'task:started', task });
+  taskManager.updateTaskStatus(task.id, 'running', { started_at: new Date().toISOString() });
+  wsManager.broadcast({ type: 'task_event', event: 'started', taskId: task.id, task });
 });
 
 taskRunner.on('task:updated', (task) => {
   console.log(`Task updated: ${task.id} - ${task.status}`);
-  wsManager.broadcast({ type: 'task:updated', task });
+  taskManager.updateTaskStatus(task.id, task.status, task);
+  wsManager.broadcast({ type: 'task_event', event: 'updated', taskId: task.id, task });
 });
 
 taskRunner.on('task:completed', (task) => {
   console.log(`Task completed: ${task.id}`);
-  wsManager.broadcast({ type: 'task:completed', task });
-  
+  taskManager.updateTaskStatus(task.id, task.status, { ...task, completed_at: new Date().toISOString() });
+  wsManager.broadcast({ type: 'task_event', event: 'completed', taskId: task.id, task });
+
   // Update Kanban board when task completes
   if (task.qc_result) {
     kanbanCoordinator.onTaskCompleted(task.id, {
@@ -48,11 +54,37 @@ taskRunner.on('task:completed', (task) => {
       summary: task.qc_result.summary,
     });
   }
+
+  // Auto-create knowledge entry from completed task output
+  const outputText = Array.isArray(task.output) ? task.output.join('\n') : (task.output || '');
+  if (outputText.trim()) {
+    knowledgeService.create({
+      title: task.title || `Task ${task.id} Output`,
+      content: outputText,
+      category: task.project || 'Tasks',
+      source_type: 'task',
+      source_task_id: task.id,
+      tags: ['auto-generated', 'task-output', task.project || 'default'].filter(Boolean),
+      metadata: { task_id: task.id, agent: task.agent, status: task.status },
+    }).catch(err => console.error('Failed to create knowledge entry from task:', err));
+  }
 });
 
 taskRunner.on('task:failed', (task) => {
   console.log(`Task failed: ${task.id}`);
-  wsManager.broadcast({ type: 'task:failed', task });
+  taskManager.updateTaskStatus(task.id, 'failed', { ...task, completed_at: new Date().toISOString() });
+  wsManager.broadcast({ type: 'task_event', event: 'failed', taskId: task.id, task });
+});
+
+taskRunner.on('task:output', (event) => {
+  // Also save output to taskManager
+  const task = taskManager.getTask(event.taskId);
+  if (task) {
+    if (!task.output) task.output = [];
+    task.output.push(event.line);
+    taskManager.updateTaskStatus(task.id, task.status, { output: task.output });
+  }
+  wsManager.broadcast({ type: 'agent_output', taskId: event.taskId, line: event.line, stream: event.stream });
 });
 
 // Wire up KanbanCoordinator events to WebSocket
@@ -93,6 +125,28 @@ app.get('/tasks/:id', (c) => {
     return c.json({ error: 'Task not found' }, 404);
   }
   return c.json({ task });
+});
+
+// POST /tasks - Create and optionally run a task
+app.post('/tasks', async (c) => {
+  try {
+    const body = await c.req.json();
+    const newTask = await taskManager.createTask({
+      title: body.title,
+      description: body.description,
+      project: body.project || 'default',
+      agent: body.agent || 'claude-code',
+      briefing: body.briefing || body.description,
+    });
+    
+    // Auto-start the task
+    taskRunner.runTask(newTask).catch(err => console.error('Failed to run task:', err));
+    
+    return c.json({ task: newTask }, 201);
+  } catch (error) {
+    console.error('Failed to create task:', error);
+    return c.json({ error: error instanceof Error ? error.message : 'Failed to create task' }, 500);
+  }
 });
 
 // Mount Kanban routes
@@ -144,7 +198,7 @@ app.post('/chat', async (c) => {
                   title: { type: 'string', description: 'A short, descriptive title for the task.' },
                   description: { type: 'string', description: 'A detailed description of what needs to be done.' },
                   project: { type: 'string', description: 'The project name or bucket this task belongs to.' },
-                  agent: { type: 'string', description: 'The agent type to assign to this task (e.g., augment-agent, code-agent).' }
+                  agent: { type: 'string', description: 'The agent type to assign to this task (e.g., claude-code, custom).' }
                 },
                 required: ['title', 'description', 'project']
               }
@@ -174,9 +228,12 @@ app.post('/chat', async (c) => {
               title: args.title,
               description: args.description,
               project: args.project,
-              agent: args.agent || 'augment-agent',
+              agent: args.agent || 'claude-code',
               briefing: args.description
             });
+            
+            // Start the task automatically
+            taskRunner.runTask(newTask).catch(err => console.error('Failed to run task:', err));
             
             content += `\n\n✅ Created task: **${newTask.title}** (ID: ${newTask.id}) in project \`${newTask.project}\`.`;
           } catch (err) {
@@ -195,6 +252,10 @@ app.post('/chat', async (c) => {
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
+
+// Mount Knowledge routes
+const knowledgeRouter = createKnowledgeRoutes(knowledgeService);
+app.route('/knowledge', knowledgeRouter);
 
 // Mount Config routes
 app.route('/config', configRouter);

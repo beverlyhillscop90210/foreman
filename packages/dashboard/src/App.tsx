@@ -8,6 +8,7 @@ import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useTerminalStore } from './stores/terminalStore';
 import { useSettingsStore } from './stores/settingsStore';
+import { useChatStore } from './stores/chatStore';
 import { supabase } from './lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 
@@ -37,13 +38,16 @@ function App() {
         if (!isAllowed) {
           await supabase.auth.signOut();
           setSession(null);
+          useChatStore.getState().setCurrentUser(null);
           setAccessDenied(true);
         } else {
           setSession(session);
+          useChatStore.getState().setCurrentUser(email);
           setAccessDenied(false);
         }
       } else {
         setSession(null);
+        useChatStore.getState().setCurrentUser(null);
       }
       setLoading(false);
     };
@@ -59,13 +63,16 @@ function App() {
         if (!isAllowed) {
           await supabase.auth.signOut();
           setSession(null);
+          useChatStore.getState().setCurrentUser(null);
           setAccessDenied(true);
         } else {
           setSession(session);
+          useChatStore.getState().setCurrentUser(email);
           setAccessDenied(false);
         }
       } else {
         setSession(null);
+        useChatStore.getState().setCurrentUser(null);
       }
     });
 
