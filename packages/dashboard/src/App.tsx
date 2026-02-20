@@ -31,7 +31,7 @@ function App() {
       
       if (session?.user?.email) {
         const email = session.user.email;
-        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io';
+        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io' || email === 'peter.schings@googlemail.com';
         const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
         
         if (!isAllowed) {
@@ -53,7 +53,7 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user?.email) {
         const email = session.user.email;
-        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io';
+        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io' || email === 'peter.schings@googlemail.com';
         const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
         
         if (!isAllowed) {

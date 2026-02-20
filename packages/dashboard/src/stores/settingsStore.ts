@@ -81,7 +81,8 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
 const DEFAULT_ACCESS_CONTROL: AccessControl = {
   users: [
     { email: 'peter@beverlyhillscop.io', name: 'Peter Schings', role: 'Super Admin' },
-    { email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' }
+    { email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' },
+    { email: 'peter.schings@googlemail.com', name: 'Peter Schings', role: 'Super Admin' }
   ]
 };
 
@@ -202,6 +203,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           const peter2 = users.find((u: any) => u.email === 'peterschings@gmail.com');
           if (peter2) peter2.role = 'Super Admin';
           else users.push({ email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' });
+
+          const peter3 = users.find((u: any) => u.email === 'peter.schings@googlemail.com');
+          if (peter3) peter3.role = 'Super Admin';
+          else users.push({ email: 'peter.schings@googlemail.com', name: 'Peter Schings', role: 'Super Admin' });
           
           loadedAccessControl = { users };
         }
