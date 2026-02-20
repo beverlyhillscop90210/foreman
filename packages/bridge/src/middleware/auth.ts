@@ -27,7 +27,7 @@ export const authMiddleware = async (c: any, next: any) => {
       return c.json({ error: "Invalid personal access token" }, 401);
     }
     
-    c.set("user", { id: data.user_id, role: data.profiles.role });
+    c.set("user", { id: data.user_id, role: Array.isArray(data.profiles) ? data.profiles[0]?.role : (data.profiles as any)?.role });
     await next();
     return;
   }
