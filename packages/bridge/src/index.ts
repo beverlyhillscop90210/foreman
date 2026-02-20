@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { tasksRouter } from './routes/tasks.js';
+import { dagsRouter } from './routes/dags.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = new Hono();
@@ -23,6 +24,9 @@ app.get('/health', (c) => {
 // Protected routes
 app.use('/tasks/*', authMiddleware);
 app.route('/tasks', tasksRouter);
+
+app.use('/dags/*', authMiddleware);
+app.route('/dags', dagsRouter);
 
 // 404
 app.notFound((c) => {

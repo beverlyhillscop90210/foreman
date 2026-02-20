@@ -11,15 +11,32 @@ import type {
 } from './types.js';
 import { TaskRunner } from './task-runner.js';
 import { DiffCapture } from './diff-capture.js';
+import { RoleManager } from './role-manager.js';
 
 export class TaskManager {
   private tasks: Map<string, Task> = new Map();
   private taskRunner: TaskRunner;
   private diffCapture: DiffCapture;
+  private roleManager: RoleManager;
 
-  constructor() {
-    this.taskRunner = new TaskRunner();
+  /** Hard limit: max concurrent running agents */
+  private static readonly MAX_CONCURRENT_AGENTS = 10;
+
+  constructor(roleManager: RoleManager) {
+    this.roleManager = roleManager;
+    this.taskRunner = new TaskRunner(roleManager);
     this.diffCapture = new DiffCapture();
+  }
+
+  /**
+   * Count currently running agent tasks
+   */
+  private getRunningCount(): number {
+    let count = 0;
+    for (const task of this.tasks.values()) {
+      if (task.status === 'running') count++;
+    }
+    return count;
   }
 
   /**
@@ -34,7 +51,8 @@ export class TaskManager {
       allowed_files: request.allowed_files,
       blocked_files: request.blocked_files || [],
       verification: request.verification,
-      agent: request.agent || 'claude-code',
+      agent: request.agent || 'augment',
+      role: request.role,
       status: 'pending',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -42,6 +60,16 @@ export class TaskManager {
     };
 
     this.tasks.set(task.id, task);
+
+    // GUARDRAIL: Enforce max concurrent agents
+    const running = this.getRunningCount();
+    if (running >= TaskManager.MAX_CONCURRENT_AGENTS) {
+      task.status = 'failed';
+      task.error = `Concurrency limit reached (${running}/${TaskManager.MAX_CONCURRENT_AGENTS} agents running). Try again later.`;
+      task.updated_at = new Date().toISOString();
+      console.warn(`⛔ Task ${task.id} rejected: ${task.error}`);
+      return task;
+    }
 
     // Start task execution in background
     this.executeTask(task).catch((error) => {

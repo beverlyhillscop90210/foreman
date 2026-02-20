@@ -211,6 +211,128 @@ server.registerTool(
   }
 );
 
+// Tool 6: Create DAG
+server.registerTool(
+  'foreman_create_dag',
+  {
+    description: 'Create a new DAG workflow for multi-agent orchestration',
+    inputSchema: {
+      name: z.string().describe('Name of the DAG workflow'),
+      description: z.string().describe('Description of the workflow'),
+      project: z.string().describe('Project directory path'),
+      created_by: z.enum(['planner', 'manual']).default('manual').describe('Who created this DAG'),
+      approval_mode: z.enum(['per_task', 'end_only', 'gate_configured']).default('per_task').describe('How tasks are approved'),
+      nodes: z.array(z.any()).describe('Array of DAG nodes (tasks, gates, etc.)'),
+      edges: z.array(z.any()).describe('Array of DAG edges (dependencies)'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    const dag = await callBridge('/dags', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: `✅ DAG created successfully!\n\nDAG ID: ${dag.id}\nStatus: ${dag.status}\n\nUse foreman_execute_dag to start it, or foreman_dag_status to check progress.`,
+      }],
+    };
+  }
+);
+
+// Tool 7: Execute DAG
+server.registerTool(
+  'foreman_execute_dag',
+  {
+    description: 'Start execution of a DAG workflow',
+    inputSchema: {
+      dag_id: z.string().describe('The DAG ID to execute'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    const dag = await callBridge(`/dags/${params.dag_id}/execute`, {
+      method: 'POST',
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: `🚀 DAG execution started!\n\nDAG ID: ${dag.id}\nStatus: ${dag.status}\n\nUse foreman_dag_status to check progress.`,
+      }],
+    };
+  }
+);
+
+// Tool 8: Get DAG Status
+server.registerTool(
+  'foreman_dag_status',
+  {
+    description: 'Get the current status of a DAG workflow and its nodes',
+    inputSchema: {
+      dag_id: z.string().describe('The DAG ID'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    const dag = await callBridge(`/dags/${params.dag_id}`);
+
+    let statusText = `📊 DAG Status: ${dag.status}\n\n`;
+    statusText += `Name: ${dag.name}\n`;
+    statusText += `Project: ${dag.project}\n`;
+    statusText += `Created: ${dag.created_at}\n\n`;
+    
+    statusText += `Nodes:\n`;
+    for (const node of dag.nodes) {
+      statusText += `- [${node.status}] ${node.title} (${node.type})\n`;
+      if (node.error) {
+        statusText += `  ❌ Error: ${node.error}\n`;
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: statusText,
+      }],
+    };
+  }
+);
+
+// Tool 9: Plan DAG
+server.registerTool(
+  'foreman_plan',
+  {
+    description: 'Ask the Planner agent to generate a DAG workflow from a high-level brief',
+    inputSchema: {
+      project: z.string().describe('Project directory path'),
+      brief: z.string().describe('High-level description of what needs to be built'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    // In a real implementation, this would call an LLM directly or via Bridge
+    // to generate the DAG JSON, then create it.
+    // For now, we just create a placeholder task for the planner.
+    const task = await callBridge('/tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        project: params.project,
+        title: 'Plan DAG Workflow',
+        briefing: `Generate a DAG workflow for the following brief:\n\n${params.brief}\n\nOutput the DAG as JSON.`,
+        allowed_files: [],
+        agent: 'claude-code',
+        role: 'planner'
+      }),
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: `✅ Planner task created!\n\nTask ID: ${task.id}\n\nThe planner is now generating the DAG. Use foreman_task_status to check progress and get the JSON output.`,
+      }],
+    };
+  }
+);
+
 // Start stdio transport (standard for MCP servers)
 const transport = new StdioServerTransport();
 server.connect(transport).then(() => {

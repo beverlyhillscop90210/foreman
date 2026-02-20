@@ -3,11 +3,10 @@
  */
 
 import { Hono } from 'hono';
-import { TaskManager } from '../task-manager.js';
+import { taskManager } from '../services.js';
 import type { CreateTaskRequest, ApproveRequest, RejectRequest } from '../types.js';
 
 export const tasksRouter = new Hono();
-const taskManager = new TaskManager();
 
 // POST /tasks - Create new task
 tasksRouter.post('/', async (c) => {
