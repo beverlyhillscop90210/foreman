@@ -66,8 +66,8 @@ const KanbanColumn = ({ column, tasks, onTaskClick }: {
   const isCommitReview = column.id === 'commit-review';
 
   return (
-    <div className="flex-1 min-w-[280px] flex flex-col">
-      <div className="bg-foreman-bg-medium border border-foreman-border p-3 mb-2">
+    <div className="flex-1 min-w-[280px] flex flex-col bg-foreman-bg-dark border border-foreman-border">
+      <div className="bg-foreman-bg-medium border-b border-foreman-border p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {isCommitReview && (
@@ -82,7 +82,7 @@ const KanbanColumn = ({ column, tasks, onTaskClick }: {
           </span>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-2">
         {tasks.length === 0 ? (
           <div className="text-center py-8">
             <div className="font-mono text-xs text-foreman-text opacity-30">

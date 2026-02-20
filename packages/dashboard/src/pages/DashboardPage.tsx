@@ -1,4 +1,4 @@
-import { TerminalGrid } from '../components/terminal/TerminalGrid';
+import { AgentView } from '../components/terminal/AgentView';
 import { Sidebar } from '../components/layout/Sidebar';
 
 export const DashboardPage = () => {
@@ -6,7 +6,7 @@ export const DashboardPage = () => {
     <div className="flex h-full overflow-hidden">
       <Sidebar />
       <div className="flex-1 overflow-hidden">
-        <TerminalGrid />
+        <AgentView />
       </div>
     </div>
   );

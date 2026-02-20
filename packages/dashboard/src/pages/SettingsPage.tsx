@@ -372,26 +372,6 @@ export const SettingsPage = () => {
                     Default maximum turns per agent execution (10-1000)
                   </p>
                 </div>
-
-                <div>
-                  <label className="block font-mono text-sm text-foreman-text mb-2">
-                    Default Agent Type
-                  </label>
-                  <select
-                    value={agentConfig.defaultAgentType}
-                    onChange={(e) => setAgentConfig({ defaultAgentType: e.target.value })}
-                    className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
-                               font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
-                  >
-                    <option value="augment-agent">Augment Agent</option>
-                    <option value="code-agent">Code Agent</option>
-                    <option value="research-agent">Research Agent</option>
-                    <option value="test-agent">Test Agent</option>
-                  </select>
-                  <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
-                    Default agent type for new tasks
-                  </p>
-                </div>
               </div>
 
               <div className="mt-4 flex justify-end">
@@ -556,25 +536,27 @@ export const SettingsPage = () => {
                       <label className="block font-mono text-sm text-foreman-text mb-2">
                         Model
                       </label>
-                      <input
-                        type="text"
-                        list="model-options"
+                      <select
                         value={role.model}
                         onChange={(e) => updateRoleConfig(role.id, { model: e.target.value })}
                         className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
                                    font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
-                        placeholder="e.g., claude-3-5-sonnet-20241022 or openrouter/anthropic/claude-3.5-sonnet"
-                      />
-                      <datalist id="model-options">
-                        <option value="claude-3-5-sonnet-20241022" />
-                        <option value="claude-3-5-haiku-20241022" />
-                        <option value="gpt-4o" />
-                        <option value="gpt-4o-mini" />
-                        <option value="openrouter/anthropic/claude-3.5-sonnet" />
-                        <option value="openrouter/openai/gpt-4o" />
-                        <option value="openrouter/google/gemini-1.5-pro" />
-                        <option value="openrouter/meta-llama/llama-3.1-405b-instruct" />
-                      </datalist>
+                      >
+                        <optgroup label="Anthropic">
+                          <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
+                          <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
+                        </optgroup>
+                        <optgroup label="OpenAI">
+                          <option value="gpt-4o">gpt-4o</option>
+                          <option value="gpt-4o-mini">gpt-4o-mini</option>
+                        </optgroup>
+                        <optgroup label="OpenRouter">
+                          <option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet</option>
+                          <option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o</option>
+                          <option value="openrouter/google/gemini-1.5-pro">openrouter/google/gemini-1.5-pro</option>
+                          <option value="openrouter/meta-llama/llama-3.1-405b-instruct">openrouter/meta-llama/llama-3.1-405b-instruct</option>
+                        </optgroup>
+                      </select>
                     </div>
 
                     <div>

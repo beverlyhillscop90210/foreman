@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { TerminalOutput } from './TerminalOutput';
 import { Agent } from '../../types';
 
@@ -10,8 +9,7 @@ interface TerminalPanelProps {
   isMinimized: boolean;
 }
 
-export const TerminalPanel = ({ panelId, agent, isMaximized, isMinimized }: TerminalPanelProps) => {
-  const { toggleMinimize, toggleMaximize, hidePanel } = useTerminalStore();
+export const TerminalPanel = ({ agent, isMaximized, isMinimized }: TerminalPanelProps) => {
   const [elapsedTime, setElapsedTime] = useState('00:00');
 
   useEffect(() => {
@@ -66,34 +64,7 @@ export const TerminalPanel = ({ panelId, agent, isMaximized, isMinimized }: Term
 
           {/* Controls */}
           <div className="flex items-center gap-1 ml-2">
-            <button
-              onClick={() => toggleMinimize(panelId)}
-              className="text-foreman-text hover:text-foreman-orange p-1"
-              title="Minimize"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-              </svg>
-            </button>
-            <button
-              onClick={() => toggleMaximize(panelId)}
-              className="text-foreman-text hover:text-foreman-orange p-1"
-              title="Maximize"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-              </svg>
-            </button>
-            <button
-              onClick={() => hidePanel(panelId)}
-              className="text-foreman-text hover:text-red-500 p-1"
-              title="Close"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {/* Controls removed for AgentView */}
           </div>
         </div>
       </div>

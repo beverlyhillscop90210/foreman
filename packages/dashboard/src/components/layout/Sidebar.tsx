@@ -5,28 +5,9 @@ export const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { agents, selectedProject, setSelectedProject } = useTerminalStore();
 
-  // Group agents by project (bucket)
-  const projects = useMemo(() => {
-    const projectMap = new Map<string, { name: string; activeCount: number; totalCount: number }>();
-
-    agents.forEach(agent => {
-      const existing = projectMap.get(agent.bucket);
-      const isActive = agent.status === 'running';
-
-      if (existing) {
-        existing.totalCount++;
-        if (isActive) existing.activeCount++;
-      } else {
-        projectMap.set(agent.bucket, {
-          name: agent.bucket,
-          activeCount: isActive ? 1 : 0,
-          totalCount: 1,
-        });
-      }
-    });
-
-    return Array.from(projectMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [agents]);
+  // Group agents by status
+  const activeAgents = useMemo(() => agents.filter(a => a.status === 'running'), [agents]);
+  const pastAgents = useMemo(() => agents.filter(a => a.status !== 'running'), [agents]);
 
   if (isCollapsed) {
     return (
@@ -44,9 +25,10 @@ export const Sidebar = () => {
   }
 
   return (
-    <div className="w-[220px] bg-foreman-bg-dark border-r border-foreman-border flex flex-col">
+    <div className="w-[280px] bg-foreman-bg-dark border-r border-foreman-border flex flex-col">
       {/* Header */}
-      <div className="h-12 border-b border-foreman-border flex items-center justify-end px-3">
+      <div className="h-12 border-b border-foreman-border flex items-center justify-between px-3">
+        <span className="font-mono text-sm text-foreman-text font-bold">Agents</span>
         <button
           onClick={() => setIsCollapsed(true)}
           className="text-foreman-text hover:text-foreman-orange"
@@ -59,28 +41,59 @@ export const Sidebar = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Project List */}
-        {projects.map((project) => (
-          <button
-            key={project.name}
-            onClick={() => setSelectedProject(project.name)}
-            className={`w-full px-3 py-3 text-left border-b border-foreman-border hover:bg-foreman-bg-medium
-                        ${selectedProject === project.name ? 'bg-foreman-bg-medium border-l-2 border-l-foreman-orange' : ''}`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-sans text-xs text-foreman-text font-medium">{project.name}</span>
-              <span className="font-mono text-xs text-foreman-text opacity-70">
-                {project.totalCount}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className={`w-1.5 h-1.5 rounded-full ${project.activeCount > 0 ? 'bg-foreman-orange' : 'bg-gray-500'}`} />
-              <span className="font-mono text-[11px] text-foreman-text opacity-50">
-                {project.activeCount} active
-              </span>
-            </div>
-          </button>
-        ))}
+        {/* Active Agents */}
+        <div className="px-3 py-2">
+          <h3 className="font-mono text-xs text-foreman-text opacity-50 uppercase tracking-wider mb-2">Active</h3>
+          {activeAgents.length === 0 ? (
+            <div className="text-xs text-foreman-text opacity-30 italic px-2">No active agents</div>
+          ) : (
+            activeAgents.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => setSelectedProject(agent.id)}
+                className={`w-full px-3 py-2 text-left rounded mb-1 hover:bg-foreman-bg-medium
+                            ${selectedProject === agent.id ? 'bg-foreman-bg-medium border-l-2 border-l-foreman-orange' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-sans text-xs text-foreman-text font-medium truncate pr-2">{agent.taskTitle}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  <span className="font-mono text-[10px] text-foreman-text opacity-50 truncate">
+                    {agent.bucket}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        {/* Past Agents */}
+        <div className="px-3 py-2 mt-4">
+          <h3 className="font-mono text-xs text-foreman-text opacity-50 uppercase tracking-wider mb-2">Past</h3>
+          {pastAgents.length === 0 ? (
+            <div className="text-xs text-foreman-text opacity-30 italic px-2">No past agents</div>
+          ) : (
+            pastAgents.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => setSelectedProject(agent.id)}
+                className={`w-full px-3 py-2 text-left rounded mb-1 hover:bg-foreman-bg-medium
+                            ${selectedProject === agent.id ? 'bg-foreman-bg-medium border-l-2 border-l-foreman-orange' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-sans text-xs text-foreman-text font-medium truncate pr-2">{agent.taskTitle}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-1.5 h-1.5 rounded-full ${agent.status === 'completed' ? 'bg-gray-500' : 'bg-red-500'}`} />
+                  <span className="font-mono text-[10px] text-foreman-text opacity-50 truncate">
+                    {agent.bucket}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

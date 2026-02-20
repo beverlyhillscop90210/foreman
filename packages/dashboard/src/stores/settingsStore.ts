@@ -80,15 +80,16 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
 
 const DEFAULT_ACCESS_CONTROL: AccessControl = {
   users: [
-    { email: 'peter@beverlyhillscop.io', name: 'Peter Schings', role: 'Super Admin' }
+    { email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' }
   ]
 };
 
 const DEFAULT_ROLES_CONFIG: RoleConfig[] = [
-  { id: 'augment-agent', name: 'Augment Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peter@beverlyhillscop.io', userName: 'Peter Schings', prompt: 'You are an expert coding assistant. Your task is to help the user write, refactor, and debug code.' }], activePromptUserEmail: 'peter@beverlyhillscop.io' },
-  { id: 'code-agent', name: 'Code Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peter@beverlyhillscop.io', userName: 'Peter Schings', prompt: 'You are an expert software engineer. Your task is to implement features according to the provided specifications.' }], activePromptUserEmail: 'peter@beverlyhillscop.io' },
-  { id: 'research-agent', name: 'Research Agent', model: 'openrouter/anthropic/claude-3.5-sonnet', systemPrompts: [{ userEmail: 'peter@beverlyhillscop.io', userName: 'Peter Schings', prompt: 'You are an expert researcher. Your task is to gather information, analyze data, and provide comprehensive reports.' }], activePromptUserEmail: 'peter@beverlyhillscop.io' },
-  { id: 'test-agent', name: 'Test Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peter@beverlyhillscop.io', userName: 'Peter Schings', prompt: 'You are an expert QA engineer. Your task is to write comprehensive test suites and identify edge cases.' }], activePromptUserEmail: 'peter@beverlyhillscop.io' },
+  { id: 'augment-agent', name: 'Augment Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peterschings@gmail.com', userName: 'Peter Schings', prompt: 'You are an expert coding assistant. Your task is to help the user write, refactor, and debug code.' }], activePromptUserEmail: 'peterschings@gmail.com' },
+  { id: 'code-agent', name: 'Code Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peterschings@gmail.com', userName: 'Peter Schings', prompt: 'You are an expert software engineer. Your task is to implement features according to the provided specifications.' }], activePromptUserEmail: 'peterschings@gmail.com' },
+  { id: 'research-agent', name: 'Research Agent', model: 'openrouter/anthropic/claude-3.5-sonnet', systemPrompts: [{ userEmail: 'peterschings@gmail.com', userName: 'Peter Schings', prompt: 'You are an expert researcher. Your task is to gather information, analyze data, and provide comprehensive reports.' }], activePromptUserEmail: 'peterschings@gmail.com' },
+  { id: 'test-agent', name: 'Test Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peterschings@gmail.com', userName: 'Peter Schings', prompt: 'You are an expert QA engineer. Your task is to write comprehensive test suites and identify edge cases.' }], activePromptUserEmail: 'peterschings@gmail.com' },
+  { id: 'qc-agent', name: 'QC Agent', model: 'claude-3-5-sonnet-20241022', systemPrompts: [{ userEmail: 'peterschings@gmail.com', userName: 'Peter Schings', prompt: 'You are the Quality Control (QC) Agent. Your task is to review completed tasks, verify code quality, and manage the Kanban board. If a task is poorly executed, you must reassign it or spawn a new agent. When you are satisfied, notify the user via MCP for final approval before merging.' }], activePromptUserEmail: 'peterschings@gmail.com' },
 ];
 
 const MOCK_ENV_VARS: EnvVar[] = [
@@ -188,9 +189,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             role: loadedAccessControl.adminEmails?.includes(email) ? 'Admin' : 'User'
           }));
           // Ensure Peter is Super Admin
-          const peter = users.find((u: any) => u.email === 'peter@beverlyhillscop.io');
+          const peter = users.find((u: any) => u.email === 'peterschings@gmail.com');
           if (peter) peter.role = 'Super Admin';
-          else users.push({ email: 'peter@beverlyhillscop.io', name: 'Peter Schings', role: 'Super Admin' });
+          else users.push({ email: 'peterschings@gmail.com', name: 'Peter Schings', role: 'Super Admin' });
           
           loadedAccessControl = { users };
         }
