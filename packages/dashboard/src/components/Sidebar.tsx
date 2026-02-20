@@ -1,7 +1,11 @@
-import React from "react";
 import { Activity, Terminal, LayoutDashboard, Database, Settings } from "lucide-react";
 
-export function Sidebar() {
+interface SidebarProps {
+  currentView: "mission-control" | "settings";
+  onViewChange: (view: "mission-control" | "settings") => void;
+}
+
+export function Sidebar({ currentView, onViewChange }: SidebarProps) {
   return (
     <div className="w-64 border-r border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col">
       <div className="p-4 border-b border-[var(--color-border)]">
@@ -12,22 +16,36 @@ export function Sidebar() {
         <div className="mb-8">
           <h2 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-4">Views</h2>
           <nav className="space-y-2">
-            <a href="#" className="flex items-center gap-3 text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-2 rounded-md">
+            <button 
+              onClick={() => onViewChange("mission-control")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                currentView === "mission-control" 
+                  ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10" 
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              }`}
+            >
               <Terminal size={18} />
               <span className="font-medium">Mission Control</span>
-            </a>
-            <a href="#" className="flex items-center gap-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] px-3 py-2 rounded-md transition-colors">
+            </button>
+            <button className="w-full flex items-center gap-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] px-3 py-2 rounded-md transition-colors opacity-50 cursor-not-allowed">
               <LayoutDashboard size={18} />
               <span className="font-medium">Kanban Board</span>
-            </a>
-            <a href="#" className="flex items-center gap-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] px-3 py-2 rounded-md transition-colors">
+            </button>
+            <button className="w-full flex items-center gap-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] px-3 py-2 rounded-md transition-colors opacity-50 cursor-not-allowed">
               <Database size={18} />
               <span className="font-medium">Knowledge Base</span>
-            </a>
-            <a href="#" className="flex items-center gap-3 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] px-3 py-2 rounded-md transition-colors">
+            </button>
+            <button 
+              onClick={() => onViewChange("settings")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                currentView === "settings" 
+                  ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10" 
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              }`}
+            >
               <Settings size={18} />
               <span className="font-medium">Configuration</span>
-            </a>
+            </button>
           </nav>
         </div>
 

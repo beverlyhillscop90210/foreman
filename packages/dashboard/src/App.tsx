@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalGrid } from "./components/TerminalGrid";
 import { BottomBar } from "./components/BottomBar";
 import { Login } from "./components/Login";
+import { Settings } from "./components/Settings";
 import { supabase } from "./lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentView, setCurrentView] = useState<"mission-control" | "settings">("mission-control");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -34,9 +36,9 @@ function App() {
   return (
     <div className="h-screen w-screen bg-[var(--color-background)] text-[var(--color-text-primary)] flex flex-col overflow-hidden">
       <div className="flex-1 flex overflow-hidden">
-        <Sidebar />
+        <Sidebar currentView={currentView} onViewChange={setCurrentView} />
         <main className="flex-1 flex flex-col overflow-hidden">
-          <TerminalGrid />
+          {currentView === "mission-control" ? <TerminalGrid /> : <Settings />}
         </main>
       </div>
       <BottomBar />
