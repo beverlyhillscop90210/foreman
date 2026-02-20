@@ -3,6 +3,7 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useSettingsStore, type EnvVar } from '../stores/settingsStore';
 import { useToast, ToastContainer } from '../components/settings/Toast';
 import { api } from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 interface EnvVarRowProps {
   envVar: EnvVar;
@@ -36,7 +37,14 @@ const EnvVarRow = ({ envVar, onDelete }: EnvVarRowProps) => {
 
   return (
     <tr className="border-b border-foreman-border hover:bg-foreman-bg-medium">
-      <td className="px-4 py-3 font-mono text-sm text-foreman-orange">{envVar.key}</td>
+      <td className="px-4 py-3 font-mono text-sm text-foreman-orange">
+        {envVar.key}
+        {envVar.userEmail && (
+          <span className="ml-2 text-xs text-foreman-text opacity-50 bg-foreman-bg-dark px-1 py-0.5 rounded">
+            {envVar.userEmail}
+          </span>
+        )}
+      </td>
       <td className="px-4 py-3 font-mono text-sm text-foreman-text">
         {isEditing ? (
           <input
@@ -175,16 +183,42 @@ const AddVariableForm = ({ onAdd, onCancel }: { onAdd: (envVar: EnvVar) => void;
 
 export const SettingsPage = () => {
   const { setMaxAgents } = useTerminalStore();
-  const { envVars, agentConfig, addEnvVar, deleteEnvVar, setAgentConfig, saveToLocalStorage } = useSettingsStore();
+  const { envVars, agentConfig, accessControl, rolesConfig, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig, saveToLocalStorage } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const toast = useToast();
 
   // Load settings on mount
   useEffect(() => {
-    useSettingsStore.getState().loadFromLocalStorage();
+    useSettingsStore.getState().syncWithAPI();
+    
+    // Get current user
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setCurrentUserEmail(session.user.email);
+      }
+    });
   }, []);
 
+  // Determine user role
+  const currentUserRole = currentUserEmail 
+    ? accessControl.users?.find(u => u.email === currentUserEmail)?.role || 'User'
+    : 'User';
+  
+  const isAdmin = currentUserRole === 'Super Admin' || currentUserRole === 'Admin';
+
+  // Filter env vars based on role
+  // Admins see everything. Users only see their own keys.
+  const visibleEnvVars = envVars.filter(envVar => {
+    if (isAdmin) return true;
+    return envVar.userEmail === currentUserEmail;
+  });
+
   const handleAddVariable = (envVar: EnvVar) => {
+    // If not admin, automatically assign the key to the current user
+    if (!isAdmin && currentUserEmail) {
+      envVar.userEmail = currentUserEmail;
+    }
     addEnvVar(envVar);
     setShowAddForm(false);
     toast.success('Variable added');
@@ -197,24 +231,29 @@ export const SettingsPage = () => {
 
   const handleSaveConfiguration = async () => {
     try {
-      // Try to save to API first
-      await api.getHealth(); // Test if API is available
+      // Save to Supabase first
+      await useSettingsStore.getState().saveToAPI();
+      
+      // Try to save to Bridge API
+      try {
+        await api.getHealth(); // Test if API is available
 
-      // If API is available, save all env vars
-      for (const envVar of envVars) {
-        await api.setConfig(envVar.key, {
-          value: envVar.value,
-          category: envVar.category,
-          masked: envVar.masked,
-        });
+        // If API is available, save all env vars
+        for (const envVar of envVars) {
+          await api.setConfig(envVar.key, {
+            value: envVar.value,
+            category: envVar.category,
+            masked: envVar.masked,
+          });
+        }
+        toast.success('Settings saved to Supabase and Bridge API');
+      } catch (apiError) {
+        console.warn('Bridge API not available, but saved to Supabase', apiError);
+        toast.success('Settings saved to Supabase (Bridge API offline)');
       }
-
-      toast.success('Settings saved to API');
     } catch (error) {
-      // Fallback to localStorage
-      console.warn('API not available, saving to localStorage', error);
-      saveToLocalStorage();
-      toast.info('Settings saved locally');
+      console.error('Failed to save settings', error);
+      toast.error('Failed to save settings');
     }
 
     // Also update terminal store with max agents
@@ -226,7 +265,7 @@ export const SettingsPage = () => {
       <ToastContainer />
       <div className="max-w-6xl mx-auto">
         {/* Environment Variables Section */}
-        <section className="mb-6">
+        <section className="mb-8">
           <div className="mb-3">
             <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Environment Variables</h2>
             <p className="font-sans text-xs text-foreman-text opacity-70">
@@ -245,9 +284,9 @@ export const SettingsPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {envVars.map((envVar) => (
+                {visibleEnvVars.map((envVar) => (
                   <EnvVarRow
-                    key={envVar.key}
+                    key={envVar.key + (envVar.userEmail || '')}
                     envVar={envVar}
                     onDelete={handleDeleteVariable}
                   />
@@ -262,7 +301,13 @@ export const SettingsPage = () => {
             </table>
           </div>
 
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              onClick={handleSaveConfiguration}
+              className="bg-foreman-bg-medium border border-foreman-border text-foreman-text font-sans text-sm px-4 py-2 hover:border-foreman-orange"
+            >
+              Sync to Bridge API
+            </button>
             <button
               onClick={() => setShowAddForm(true)}
               disabled={showAddForm}
@@ -275,89 +320,282 @@ export const SettingsPage = () => {
         </section>
 
         {/* Agent Configuration Section */}
-        <section>
-          <div className="mb-3">
-            <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Agent Configuration</h2>
-            <p className="font-sans text-xs text-foreman-text opacity-70">
-              Configure default agent behavior and limits
-            </p>
-          </div>
+        {isAdmin && (
+          <section className="mb-8">
+            <div className="mb-3">
+              <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Agent Configuration</h2>
+              <p className="font-sans text-xs text-foreman-text opacity-70">
+                Configure default agent behavior and limits
+              </p>
+            </div>
 
-          <div className="bg-foreman-bg-dark border border-foreman-border p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-mono text-sm text-foreman-text mb-2">
-                  Max Concurrent Agents
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={agentConfig.maxConcurrentAgents}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 1;
-                    setAgentConfig({ maxConcurrentAgents: Math.min(10, Math.max(1, val)) });
-                  }}
-                  className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
-                             font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
-                />
-                <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
-                  Maximum number of agents that can run simultaneously (1-10)
-                </p>
+            <div className="bg-foreman-bg-dark border border-foreman-border p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-mono text-sm text-foreman-text mb-2">
+                    Max Concurrent Agents
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={agentConfig.maxConcurrentAgents}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 1;
+                      setAgentConfig({ maxConcurrentAgents: Math.min(10, Math.max(1, val)) });
+                    }}
+                    className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                               font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                  />
+                  <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
+                    Maximum number of agents that can run simultaneously (1-10)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-mono text-sm text-foreman-text mb-2">
+                    Default Max Turns
+                  </label>
+                  <input
+                    type="number"
+                    min="10"
+                    max="1000"
+                    value={agentConfig.defaultMaxTurns}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 10;
+                      setAgentConfig({ defaultMaxTurns: Math.min(1000, Math.max(10, val)) });
+                    }}
+                    className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                               font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                  />
+                  <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
+                    Default maximum turns per agent execution (10-1000)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-mono text-sm text-foreman-text mb-2">
+                    Default Agent Type
+                  </label>
+                  <select
+                    value={agentConfig.defaultAgentType}
+                    onChange={(e) => setAgentConfig({ defaultAgentType: e.target.value })}
+                    className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                               font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                  >
+                    <option value="augment-agent">Augment Agent</option>
+                    <option value="code-agent">Code Agent</option>
+                    <option value="research-agent">Research Agent</option>
+                    <option value="test-agent">Test Agent</option>
+                  </select>
+                  <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
+                    Default agent type for new tasks
+                  </p>
+                </div>
               </div>
 
-              <div>
-                <label className="block font-mono text-sm text-foreman-text mb-2">
-                  Default Max Turns
-                </label>
-                <input
-                  type="number"
-                  min="10"
-                  max="1000"
-                  value={agentConfig.defaultMaxTurns}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 10;
-                    setAgentConfig({ defaultMaxTurns: Math.min(1000, Math.max(10, val)) });
-                  }}
-                  className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
-                             font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
-                />
-                <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
-                  Default maximum turns per agent execution (10-1000)
-                </p>
-              </div>
-
-              <div>
-                <label className="block font-mono text-sm text-foreman-text mb-2">
-                  Default Agent Type
-                </label>
-                <select
-                  value={agentConfig.defaultAgentType}
-                  onChange={(e) => setAgentConfig({ defaultAgentType: e.target.value })}
-                  className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
-                             font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={handleSaveConfiguration}
+                  className="bg-foreman-orange text-white font-sans text-xs px-4 py-2 hover:bg-opacity-90"
                 >
-                  <option value="augment-agent">Augment Agent</option>
-                  <option value="code-agent">Code Agent</option>
-                  <option value="research-agent">Research Agent</option>
-                  <option value="test-agent">Test Agent</option>
-                </select>
-                <p className="font-sans text-xs text-foreman-text opacity-50 mt-1">
-                  Default agent type for new tasks
-                </p>
+                  Sync to Bridge API
+                </button>
               </div>
             </div>
+          </section>
+        )}
 
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={handleSaveConfiguration}
-                className="bg-foreman-orange text-white font-sans text-xs px-4 py-2 hover:bg-opacity-90"
-              >
-                Save Configuration
-              </button>
+        {/* Access Control Section */}
+        {isAdmin && (
+          <section className="mb-8">
+            <div className="mb-3">
+              <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Access Control</h2>
+              <p className="font-sans text-xs text-foreman-text opacity-70">
+                Manage who can access the dashboard and who has admin rights
+              </p>
             </div>
-          </div>
-        </section>
+
+            <div className="bg-foreman-bg-dark border border-foreman-border overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-foreman-bg-medium">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-mono text-xs text-foreman-text uppercase tracking-wider">Name</th>
+                    <th className="px-4 py-3 text-left font-mono text-xs text-foreman-text uppercase tracking-wider">Email</th>
+                    <th className="px-4 py-3 text-left font-mono text-xs text-foreman-text uppercase tracking-wider">Role</th>
+                    <th className="px-4 py-3 text-left font-mono text-xs text-foreman-text uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accessControl.users?.map((user, index) => (
+                    <tr key={index} className="border-b border-foreman-border hover:bg-foreman-bg-medium">
+                      <td className="px-4 py-3 font-sans text-sm text-foreman-text">{user.name}</td>
+                      <td className="px-4 py-3 font-mono text-sm text-foreman-text">{user.email}</td>
+                      <td className="px-4 py-3 font-sans text-sm text-foreman-text">
+                        <select
+                          value={user.role}
+                          onChange={(e) => {
+                            const newUsers = [...accessControl.users];
+                            newUsers[index].role = e.target.value as any;
+                            setAccessControl({ users: newUsers });
+                          }}
+                          disabled={user.role === 'Super Admin'}
+                          className="bg-foreman-bg-deep border border-foreman-border text-foreman-text
+                                     font-sans text-sm px-2 py-1 focus:outline-none focus:border-foreman-orange
+                                     disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <option value="Super Admin">Super Admin</option>
+                          <option value="Admin">Admin</option>
+                          <option value="User">User</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => {
+                            if (user.role === 'Super Admin') {
+                              alert('Cannot delete Super Admin');
+                              return;
+                            }
+                            if (confirm(`Delete user ${user.email}?`)) {
+                              const newUsers = accessControl.users.filter((_, i) => i !== index);
+                              setAccessControl({ users: newUsers });
+                            }
+                          }}
+                          disabled={user.role === 'Super Admin'}
+                          className="bg-red-600 border border-red-700 text-white
+                                     font-sans text-xs px-3 py-1 hover:bg-red-700
+                                     disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Delete"
+                        >
+                          🗑
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-foreman-bg-medium border-t-2 border-foreman-orange">
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        id="newUserName"
+                        placeholder="Name"
+                        className="w-full bg-foreman-bg-deep border border-foreman-border text-foreman-text
+                                   font-sans text-sm px-2 py-1 focus:outline-none focus:border-foreman-orange"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="email"
+                        id="newUserEmail"
+                        placeholder="email@example.com"
+                        className="w-full bg-foreman-bg-deep border border-foreman-border text-foreman-text
+                                   font-mono text-sm px-2 py-1 focus:outline-none focus:border-foreman-orange"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <select
+                        id="newUserRole"
+                        className="w-full bg-foreman-bg-deep border border-foreman-border text-foreman-text
+                                   font-sans text-sm px-2 py-1 focus:outline-none focus:border-foreman-orange"
+                      >
+                        <option value="User">User</option>
+                        <option value="Admin">Admin</option>
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          const nameInput = document.getElementById('newUserName') as HTMLInputElement;
+                          const emailInput = document.getElementById('newUserEmail') as HTMLInputElement;
+                          const roleInput = document.getElementById('newUserRole') as HTMLSelectElement;
+                          
+                          if (!nameInput.value || !emailInput.value) {
+                            alert('Name and Email are required');
+                            return;
+                          }
+                          
+                          const newUsers = [...(accessControl.users || []), {
+                            name: nameInput.value,
+                            email: emailInput.value,
+                            role: roleInput.value as any
+                          }];
+                          
+                          setAccessControl({ users: newUsers });
+                          nameInput.value = '';
+                          emailInput.value = '';
+                          roleInput.value = 'User';
+                        }}
+                        className="bg-foreman-orange text-white font-sans text-xs px-3 py-1 hover:bg-opacity-90"
+                      >
+                        Add User
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Role Configuration Section */}
+        {isAdmin && (
+          <section className="mb-8">
+            <div className="mb-3">
+              <h2 className="font-mono text-sm text-foreman-text font-medium mb-1">Role Configuration</h2>
+              <p className="font-sans text-xs text-foreman-text opacity-70">
+                Configure the model and system prompt for each agent role
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {rolesConfig.map((role) => (
+                <div key={role.id} className="bg-foreman-bg-dark border border-foreman-border p-4">
+                  <h3 className="font-mono text-sm text-foreman-orange mb-3">{role.name}</h3>
+                  
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block font-mono text-sm text-foreman-text mb-2">
+                        Model
+                      </label>
+                      <input
+                        type="text"
+                        list="model-options"
+                        value={role.model}
+                        onChange={(e) => updateRoleConfig(role.id, { model: e.target.value })}
+                        className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                                   font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                        placeholder="e.g., claude-3-5-sonnet-20241022 or openrouter/anthropic/claude-3.5-sonnet"
+                      />
+                      <datalist id="model-options">
+                        <option value="claude-3-5-sonnet-20241022" />
+                        <option value="claude-3-5-haiku-20241022" />
+                        <option value="gpt-4o" />
+                        <option value="gpt-4o-mini" />
+                        <option value="openrouter/anthropic/claude-3.5-sonnet" />
+                        <option value="openrouter/openai/gpt-4o" />
+                        <option value="openrouter/google/gemini-1.5-pro" />
+                        <option value="openrouter/meta-llama/llama-3.1-405b-instruct" />
+                      </datalist>
+                    </div>
+
+                    <div>
+                      <label className="block font-mono text-sm text-foreman-text mb-2">
+                        System Prompt
+                      </label>
+                      <textarea
+                        value={role.systemPrompt}
+                        onChange={(e) => updateRoleConfig(role.id, { systemPrompt: e.target.value })}
+                        rows={4}
+                        className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                                   font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                        placeholder="Enter the system prompt for this role..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

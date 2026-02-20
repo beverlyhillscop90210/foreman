@@ -54,6 +54,32 @@ export interface FileCheckResult {
   matched_pattern?: string;
 }
 
+// Config types
+export interface ConfigEntry {
+  key: string;
+  value: string; // encrypted value
+  category: string;
+  description: string;
+  masked: boolean;
+  updated_at: string;
+}
+
+export interface ConfigEntryInput {
+  value: string;
+  category?: string;
+  description?: string;
+  masked?: boolean;
+}
+
+export interface ConfigEntryResponse {
+  key: string;
+  value: string; // masked or revealed based on query param
+  category: string;
+  description: string;
+  masked: boolean;
+  updated_at: string;
+}
+
 /**
  * Kanban Board Types
  */

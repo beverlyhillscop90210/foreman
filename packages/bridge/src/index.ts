@@ -1,16 +1,26 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import { cors } from 'hono/cors';
 import { TaskManager } from './task-manager.js';
 import { TaskRunner } from './task-runner.js';
 import { KanbanCoordinator } from './kanban-coordinator.js';
 import { WebSocketManager } from './websocket.js';
 import { createKanbanRoutes } from './routes/kanban.js';
+import { configRouter, initConfigService } from './routes/config.js';
 
 /**
  * Bridge Backend - Integrates WebSocket, QC Runner, and Kanban Coordinator
  */
 
 const app = new Hono();
+
+// Middleware
+app.use('/*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
+
 const taskManager = new TaskManager();
 const taskRunner = new TaskRunner();
 const kanbanCoordinator = new KanbanCoordinator();
@@ -89,7 +99,13 @@ app.get('/tasks/:id', (c) => {
 const kanbanRouter = createKanbanRoutes(kanbanCoordinator);
 app.route('/kanban', kanbanRouter);
 
+// Mount Config routes
+app.route('/config', configRouter);
+
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// Initialize config service before starting server
+await initConfigService();
 
 // Use @hono/node-server's serve which returns the underlying http.Server
 const server = serve({
