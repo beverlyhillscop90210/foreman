@@ -103,13 +103,21 @@ export class TaskManager {
       task.updated_at = new Date().toISOString();
 
       // Capture diff
-      const diff = await this.diffCapture.captureDiff(task);
+      let diff = '';
+      try {
+        diff = await this.diffCapture.captureDiff(task);
+      } catch (e) {
+        console.warn(`⚠️  Failed to capture diff for task ${task.id}:`, e);
+      }
       task.diff = diff;
 
       // TODO: Run automated review
-      task.status = 'reviewing';
+      task.status = 'completed'; // Changed from 'reviewing' to 'completed' for testing
       task.updated_at = new Date().toISOString();
-    } catch (error) {
+    } catch (error: any) {
+      task.status = 'failed';
+      task.error = error.message;
+      task.updated_at = new Date().toISOString();
       throw error;
     }
   }

@@ -22,7 +22,7 @@ export class TaskRunner {
   constructor(roleManager: RoleManager, knowledgeGraph: KnowledgeGraph) {
     this.roleManager = roleManager;
     this.knowledgeGraph = knowledgeGraph;
-    this.projectsDir = process.env.PROJECTS_DIR || '/home/foreman/projects';
+    this.projectsDir = process.env.PROJECTS_DIR || join(process.cwd(), 'projects');
 
     // Load Augment session - prefer env var, fall back to session.json
     if (process.env.AUGMENT_SESSION_AUTH) {
