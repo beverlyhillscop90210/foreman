@@ -105,19 +105,28 @@ app.post('/chat', async (c) => {
     const body = await c.req.json();
     const { message, history } = body;
     
-    const apiKeyEntry = await configService.getConfig('OPENROUTER_API_KEY', true);
-    if (!apiKeyEntry || !apiKeyEntry.value) {
+    let apiKey = process.env.OPENROUTER_API_KEY || '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';
+    try {
+      const apiKeyEntry = await configService.getConfig('OPENROUTER_API_KEY', true);
+      if (apiKeyEntry && apiKeyEntry.value) {
+        apiKey = apiKeyEntry.value;
+      }
+    } catch (e) {
+      console.warn('Could not read OPENROUTER_API_KEY from config, using fallback');
+    }
+
+    if (!apiKey) {
       return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
     }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKeyEntry.value}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openrouter/anthropic/claude-3.5-sonnet',
+        model: 'anthropic/claude-3.5-sonnet',
         messages: [
           { role: 'system', content: 'You are Smartass, an expert AI assistant for the Foreman project. You help the user with their tasks, knowledge base, and project management.' },
           ...(history || []),

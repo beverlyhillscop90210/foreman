@@ -584,10 +584,10 @@ export const SettingsPage = () => {
                             ))
                           ) : (
                             <>
-                              <option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet</option>
-                              <option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o</option>
-                              <option value="openrouter/google/gemini-1.5-pro">openrouter/google/gemini-1.5-pro</option>
-                              <option value="openrouter/meta-llama/llama-3.1-405b-instruct">openrouter/meta-llama/llama-3.1-405b-instruct</option>
+                              <option value="anthropic/claude-3.5-sonnet">anthropic/claude-3.5-sonnet</option>
+                              <option value="openai/gpt-4o">openai/gpt-4o</option>
+                              <option value="google/gemini-1.5-pro">google/gemini-1.5-pro</option>
+                              <option value="meta-llama/llama-3.1-405b-instruct">meta-llama/llama-3.1-405b-instruct</option>
                             </>
                           )}
                         </optgroup>
