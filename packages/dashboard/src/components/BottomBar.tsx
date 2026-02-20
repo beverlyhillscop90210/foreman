@@ -1,4 +1,5 @@
-import { GitBranch, Clock } from "lucide-react";
+import React from "react";
+import { GitBranch, Wifi, Clock } from "lucide-react";
 
 export function BottomBar() {
   return (
