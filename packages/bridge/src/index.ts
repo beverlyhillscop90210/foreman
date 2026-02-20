@@ -128,9 +128,28 @@ app.post('/chat', async (c) => {
       body: JSON.stringify({
         model: 'anthropic/claude-3.5-sonnet',
         messages: [
-          { role: 'system', content: 'You are Smartass, an expert AI assistant for the Foreman project. You help the user with their tasks, knowledge base, and project management.' },
+          { role: 'system', content: 'You are Smartass, an expert AI assistant for the Foreman project. You help the user with their tasks, knowledge base, and project management. You can create tasks for the user using the create_task tool.' },
           ...(history || []),
           { role: 'user', content: message }
+        ],
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'create_task',
+              description: 'Create a new task in the Foreman system.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'A short, descriptive title for the task.' },
+                  description: { type: 'string', description: 'A detailed description of what needs to be done.' },
+                  project: { type: 'string', description: 'The project name or bucket this task belongs to.' },
+                  agent: { type: 'string', description: 'The agent type to assign to this task (e.g., augment-agent, code-agent).' }
+                },
+                required: ['title', 'description', 'project']
+              }
+            }
+          }
         ]
       })
     });
@@ -142,7 +161,35 @@ app.post('/chat', async (c) => {
     }
 
     const data = await response.json() as any;
-    return c.json({ content: (data as any).choices[0].message.content });
+    const responseMessage = data.choices[0].message;
+
+    if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+      let content = responseMessage.content || '';
+      
+      for (const toolCall of responseMessage.tool_calls) {
+        if (toolCall.function.name === 'create_task') {
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            const newTask = await taskManager.createTask({
+              title: args.title,
+              description: args.description,
+              project: args.project,
+              agent: args.agent || 'augment-agent',
+              briefing: args.description
+            });
+            
+            content += `\n\n✅ Created task: **${newTask.title}** (ID: ${newTask.id}) in project \`${newTask.project}\`.`;
+          } catch (err) {
+            console.error('Failed to create task from tool call:', err);
+            content += `\n\n❌ Failed to create task: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          }
+        }
+      }
+      
+      return c.json({ content: content.trim() });
+    }
+
+    return c.json({ content: responseMessage.content });
   } catch (error) {
     console.error('Chat error:', error);
     return c.json({ error: 'Internal server error' }, 500);

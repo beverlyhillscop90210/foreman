@@ -54,6 +54,7 @@ export class TaskManager {
   }): Promise<Task> {
     const task: Task = {
       id: this.generateId(),
+      title: body.title,
       project: body.project,
       description: body.description || body.briefing || '',
       status: "pending",

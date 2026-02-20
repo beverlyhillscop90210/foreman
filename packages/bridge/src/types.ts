@@ -8,6 +8,7 @@ export type TaskStatus =
 
 export interface Task {
   id: string;
+  title?: string;
   project: string;
   description: string;
   status: TaskStatus;
