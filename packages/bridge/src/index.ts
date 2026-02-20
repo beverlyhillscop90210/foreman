@@ -28,6 +28,17 @@ const taskRunner = new TaskRunner();
 const kanbanCoordinator = new KanbanCoordinator();
 const knowledgeService = new KnowledgeService();
 
+// Clean up stale tasks left in 'running' state from previous process
+for (const task of taskManager.getTasks()) {
+  if (task.status === 'running' || task.status === 'pending') {
+    console.log(`Cleaning up stale task: ${task.id} "${task.title}" (was ${task.status})`);
+    taskManager.updateTaskStatus(task.id, 'failed', {
+      agent_output: 'Task was interrupted by bridge restart',
+      completed_at: new Date().toISOString(),
+    });
+  }
+}
+
 // Wire up TaskRunner events to WebSocket
 taskRunner.on('task:started', (task) => {
   console.log(`Task started: ${task.id}`);

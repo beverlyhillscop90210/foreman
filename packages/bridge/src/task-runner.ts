@@ -10,6 +10,9 @@ import type { Task, TaskStatus } from './types.js';
  */
 export class TaskRunner extends EventEmitter {
   private runningTasks: Map<string, Task> = new Map();
+  private taskTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private taskProcesses: Map<string, any> = new Map();
+  private readonly TASK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
   /**
    * Start a task
@@ -87,6 +90,17 @@ export class TaskRunner extends EventEmitter {
         },
       });
 
+      // Store the child process so we can kill it on timeout
+      this.taskProcesses.set(task.id, child);
+
+      // Set a timeout to kill stuck tasks
+      const timeout = setTimeout(() => {
+        this.emit('task:output', { taskId: task.id, line: `Task timed out after ${this.TASK_TIMEOUT_MS / 60000} minutes. Killing process.`, stream: 'stderr' });
+        try { child.kill('SIGKILL'); } catch (_) {}
+        this.failTask(task.id, `Task timed out after ${this.TASK_TIMEOUT_MS / 60000} minutes`);
+      }, this.TASK_TIMEOUT_MS);
+      this.taskTimeouts.set(task.id, timeout);
+
       child.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');
         for (const line of lines) {
@@ -108,6 +122,11 @@ export class TaskRunner extends EventEmitter {
       });
 
       child.on('close', (code) => {
+        // Clear timeout and process reference
+        const t = this.taskTimeouts.get(task.id);
+        if (t) { clearTimeout(t); this.taskTimeouts.delete(task.id); }
+        this.taskProcesses.delete(task.id);
+
         this.emit('task:output', { taskId: task.id, line: `Process exited with code ${code}`, stream: 'stdout' });
         if (code === 0) {
           this.completeTask(task.id, { status: 'completed' });
