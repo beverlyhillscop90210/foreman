@@ -10,12 +10,14 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.9",
-    "@types/ws": "^8.18.1",
     "hono": "^4.11.9",
+    "minimatch": "^10.2.1",
+    "simple-git": "^3.31.1",
     "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.0.0"
   }
 }

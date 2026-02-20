@@ -20,8 +20,13 @@ tasksRouter.post('/', async (c) => {
     const body = await c.req.json<CreateTaskRequest>();
     
     // Validate required fields
-    if (!body.project || !body.title || !body.briefing || !body.allowed_files) {
+    if (!body.project || (!body.description && !body.briefing) || !body.allowed_files) {
       return c.json({ error: 'Missing required fields' }, 400);
+    }
+
+    // Map briefing to description if needed
+    if (body.briefing && !body.description) {
+      body.description = body.briefing;
     }
 
     const task = await taskManager.createTask(body);

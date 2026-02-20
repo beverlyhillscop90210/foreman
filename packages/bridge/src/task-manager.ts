@@ -44,8 +44,9 @@ export class TaskManager {
 
   async createTask(body: {
     project: string;
-    title: string;
-    briefing: string;
+    title?: string;
+    description: string;
+    briefing?: string;
     agent?: string;
     allowed_files?: string[];
     blocked_files?: string[];
@@ -54,7 +55,7 @@ export class TaskManager {
     const task: Task = {
       id: this.generateId(),
       project: body.project,
-      description: body.briefing,
+      description: body.description || body.briefing || '',
       status: "pending",
       created_at: new Date().toISOString(),
       allowed_files: body.allowed_files || [],

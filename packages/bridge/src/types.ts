@@ -26,6 +26,34 @@ export interface Task {
   };
 }
 
+export interface CreateTaskRequest {
+  project: string;
+  title?: string;
+  description: string;
+  briefing?: string;
+  allowed_files?: string[];
+  blocked_files?: string[];
+  verification?: string;
+  agent?: 'claude-code' | 'augment' | 'custom';
+  role?: string;
+}
+
+export interface ApproveRequest {
+  commit_message?: string;
+  push?: boolean;
+}
+
+export interface RejectRequest {
+  reason: string;
+  retry?: boolean;
+}
+
+export interface FileCheckResult {
+  allowed: boolean;
+  reason?: string;
+  matched_pattern?: string;
+}
+
 /**
  * Kanban Board Types
  */

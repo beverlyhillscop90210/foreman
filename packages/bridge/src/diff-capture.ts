@@ -53,9 +53,7 @@ export class DiffCapture {
     // Commit
     const commitMessage = `[Foreman ${task.id}] ${message}
 
-Task: ${task.title}
-Agent: ${task.agent}
-Briefing: ${task.briefing}
+Task: ${task.description}
 
 Managed by Foreman Bridge`;
 

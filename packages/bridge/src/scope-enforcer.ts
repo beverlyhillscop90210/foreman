@@ -17,7 +17,7 @@ export class ScopeEnforcer {
    */
   check(filePath: string): FileCheckResult {
     // First check blocked patterns - they take precedence
-    for (const pattern of this.task.blocked_files) {
+    for (const pattern of this.task.blocked_files || []) {
       if (this.matchesPattern(filePath, pattern)) {
         return {
           allowed: false,
@@ -28,7 +28,7 @@ export class ScopeEnforcer {
     }
 
     // Then check allowed patterns
-    for (const pattern of this.task.allowed_files) {
+    for (const pattern of this.task.allowed_files || []) {
       if (this.matchesPattern(filePath, pattern)) {
         return {
           allowed: true,
