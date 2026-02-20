@@ -1,5 +1,5 @@
 // WebSocket client for Foreman Bridge
-const WS_URL = import.meta.env.VITE_WS_URL || (window.location.hostname === 'localhost' ? 'ws://localhost:3000/ws' : 'wss://foreman.beverlyhillscop.io/ws');
+const WS_URL = import.meta.env.VITE_WS_URL || 'wss://foreman.beverlyhillscop.io/ws';
 
 export interface AgentOutputMessage {
   type: 'agent_output';
