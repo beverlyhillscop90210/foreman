@@ -4,7 +4,6 @@ import { LoginPage } from './components/auth/LoginPage';
 import { Layout } from './components/layout/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { KanbanPage } from './pages/KanbanPage';
-import { DagPage } from './pages/DagPage';
 import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useTerminalStore } from './stores/terminalStore';
@@ -110,7 +109,6 @@ function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/kanban" element={<KanbanPage />} />
-          <Route path="/dags" element={<DagPage />} />
           <Route path="/knowledge" element={<KnowledgePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
