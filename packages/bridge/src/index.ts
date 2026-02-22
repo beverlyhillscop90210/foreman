@@ -7,7 +7,9 @@ import { KanbanCoordinator } from './kanban-coordinator.js';
 import { WebSocketManager } from './websocket.js';
 import { createKanbanRoutes } from './routes/kanban.js';
 import { createKnowledgeRoutes } from './routes/knowledge.js';
+import { createDagRoutes } from './routes/dags.js';
 import { KnowledgeService } from './services/knowledge.js';
+import { DagExecutor } from './dag-executor.js';
 import { configRouter, initConfigService, configService } from './routes/config.js';
 
 /**
@@ -27,6 +29,7 @@ const taskManager = new TaskManager();
 const taskRunner = new TaskRunner();
 const kanbanCoordinator = new KanbanCoordinator();
 const knowledgeService = new KnowledgeService();
+const dagExecutor = new DagExecutor(taskRunner, taskManager);
 
 // Clean up stale tasks left in 'running' state from previous process
 for (const task of taskManager.getTasks()) {
@@ -267,6 +270,19 @@ app.post('/chat', async (c) => {
 // Mount Knowledge routes
 const knowledgeRouter = createKnowledgeRoutes(knowledgeService);
 app.route('/knowledge', knowledgeRouter);
+
+// Mount DAG routes
+const dagRouter = createDagRoutes(dagExecutor);
+app.route('/dags', dagRouter);
+
+// Wire DAG events to WebSocket
+dagExecutor.on('dag:created', (dag) => wsManager.broadcast({ type: 'dag:created', dag }));
+dagExecutor.on('dag:started', (dag) => wsManager.broadcast({ type: 'dag:started', dag }));
+dagExecutor.on('dag:completed', (dag) => wsManager.broadcast({ type: 'dag:completed', dag }));
+dagExecutor.on('dag:node:started', (e) => wsManager.broadcast({ type: 'dag:node:started', dagId: e.dag.id, node: e.node }));
+dagExecutor.on('dag:node:completed', (e) => wsManager.broadcast({ type: 'dag:node:completed', dagId: e.dag.id, node: e.node }));
+dagExecutor.on('dag:node:failed', (e) => wsManager.broadcast({ type: 'dag:node:failed', dagId: e.dag.id, node: e.node }));
+dagExecutor.on('dag:node:waiting_approval', (e) => wsManager.broadcast({ type: 'dag:node:waiting_approval', dagId: e.dag.id, node: e.node }));
 
 // Mount Config routes
 app.route('/config', configRouter);
