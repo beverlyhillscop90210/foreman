@@ -3,6 +3,7 @@ import { useDagStore, type Dag, type DagNode } from '../stores/dagStore';
 import { DagFlowGraph, NodeDetailPanel } from '../components/dag/DagFlowGraph';
 import { PlannerDialog } from '../components/dag/PlannerDialog';
 import { wsClient } from '../lib/ws';
+import { api, type Task } from '../lib/api';
 
 // ── DAG List Sidebar ───────────────────────────────────────────
 
@@ -374,11 +375,52 @@ function DagMetricsPanel({ dag }: { dag: Dag }) {
   );
 }
 
+// ── Task List Item (sidebar) ───────────────────────────────────
+
+function TaskListItem({ task }: { task: Task }) {
+  const statusColor =
+    task.status === 'completed' || task.status === 'approved' ? '#22c55e' :
+    task.status === 'running'   ? '#3b82f6' :
+    task.status === 'failed' || task.status === 'rejected' || task.status === 'qc_failed' ? '#ef4444' :
+    task.status === 'reviewing' ? '#f59e0b' :
+    '#6b7280';
+
+  const statusEmoji =
+    task.status === 'running'   ? '⚡' :
+    task.status === 'completed' || task.status === 'approved' ? '✓' :
+    task.status === 'failed' || task.status === 'rejected' ? '✗' :
+    task.status === 'reviewing' ? '👁' :
+    '○';
+
+  const elapsed = task.started_at
+    ? (() => {
+        const end = task.status === 'running' ? Date.now() : new Date(task.updated_at).getTime();
+        const ms = end - new Date(task.started_at).getTime();
+        const m = Math.floor(ms / 60000);
+        return m > 60 ? `${Math.floor(m / 60)}h${m % 60}m` : `${m}m`;
+      })()
+    : '';
+
+  return (
+    <div className="rounded-md p-2 border border-[#30363d]/60 bg-[#161b22]/40 hover:border-[#484f58] transition-all">
+      <div className="flex items-center justify-between gap-1">
+        <span className="font-mono text-[10px] truncate text-[#c9d1d9]">{task.title}</span>
+        <span className="text-[10px] shrink-0" style={{ color: statusColor }}>{statusEmoji}</span>
+      </div>
+      <div className="flex items-center justify-between mt-0.5">
+        <span className="font-mono text-[9px] text-[#484f58] truncate">{task.agent}</span>
+        <span className="font-mono text-[9px]" style={{ color: statusColor }}>{task.status}{elapsed ? ` · ${elapsed}` : ''}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard Page ────────────────────────────────────────
 
 export const DashboardPage = () => {
   const { dags, selectedDagId, selectedNodeId, loading, error, fetchDags, fetchRoles, handleWsMessage } = useDagStore();
   const [showPlanner, setShowPlanner] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   // Resizable split: percentage of available width for left (graph) pane
   const [splitPct, setSplitPct] = useState(60);
@@ -391,21 +433,42 @@ export const DashboardPage = () => {
     setSplitPct(prev => Math.min(85, Math.max(30, prev + deltaPct)));
   }, []);
 
+  // Fetch tasks
+  const fetchTasks = useCallback(async () => {
+    try {
+      const t = await api.getTasks();
+      setTasks(t);
+    } catch (e) {
+      console.error('[DashboardPage] Failed to fetch tasks:', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDags();
     fetchRoles();
+    fetchTasks();
   }, []);
 
-  // Connect WebSocket for real-time DAG updates
+  // Poll tasks every 10s
+  useEffect(() => {
+    const interval = setInterval(fetchTasks, 10000);
+    return () => clearInterval(interval);
+  }, [fetchTasks]);
+
+  // Connect WebSocket for real-time DAG + task updates
   useEffect(() => {
     wsClient.connect();
     const unsub = wsClient.onMessage((msg: any) => {
       if (typeof msg.type === 'string' && msg.type.startsWith('dag:')) {
         handleWsMessage(msg);
       }
+      // Refresh tasks on task events
+      if (msg.type === 'task_event') {
+        fetchTasks();
+      }
     });
     return unsub;
-  }, [handleWsMessage]);
+  }, [handleWsMessage, fetchTasks]);
 
   // Auto-refresh while any DAG is running (fallback for missed WS events)
   useEffect(() => {
@@ -419,7 +482,7 @@ export const DashboardPage = () => {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Left Sidebar: DAG List */}
+      {/* Left Sidebar: DAG List + Tasks */}
       <div className="w-[220px] border-r border-[#30363d] bg-[#0d1117] flex flex-col shrink-0">
         <div className="h-10 border-b border-[#30363d] flex items-center justify-between px-3">
           <span className="font-mono text-xs text-[#c9d1d9] font-bold">DAGs</span>
@@ -435,13 +498,28 @@ export const DashboardPage = () => {
             <div className="text-xs text-[#484f58] italic text-center py-8 font-mono">Loading…</div>
           )}
           {!loading && dags.length === 0 && (
-            <div className="text-xs text-[#484f58] italic text-center py-6 font-mono leading-relaxed">
+            <div className="text-xs text-[#484f58] italic text-center py-4 font-mono leading-relaxed">
               No DAGs yet.<br />Click + PLAN to create one.
             </div>
           )}
           {dags.map(dag => (
             <DagListItem key={dag.id} dag={dag} isSelected={dag.id === selectedDagId} />
           ))}
+        </div>
+
+        {/* Active Tasks Section */}
+        <div className="border-t border-[#30363d]">
+          <div className="h-8 border-b border-[#30363d] flex items-center justify-between px-3">
+            <span className="font-mono text-[10px] text-[#c9d1d9] font-bold">TASKS</span>
+            <span className="font-mono text-[9px] text-[#484f58]">{tasks.length}</span>
+          </div>
+          <div className="max-h-[280px] overflow-auto p-2 space-y-1">
+            {tasks.length === 0 ? (
+              <div className="text-[10px] text-[#484f58] italic text-center py-3 font-mono">No tasks</div>
+            ) : (
+              tasks.map(task => <TaskListItem key={task.id} task={task} />)
+            )}
+          </div>
         </div>
       </div>
 
@@ -481,10 +559,54 @@ export const DashboardPage = () => {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#0d1117]">
-            <div className="text-center">
-              <div className="text-5xl mb-4 opacity-10">📊</div>
-              <p className="font-mono text-xs text-[#484f58]">Select a DAG or plan a new one</p>
-            </div>
+            {tasks.length > 0 ? (
+              <div className="max-w-lg w-full mx-auto p-6">
+                <h2 className="font-mono text-sm text-[#c9d1d9] font-bold mb-4">Active Tasks</h2>
+                <div className="space-y-2">
+                  {tasks.map(task => {
+                    const statusColor =
+                      task.status === 'completed' || task.status === 'approved' ? '#22c55e' :
+                      task.status === 'running'   ? '#3b82f6' :
+                      task.status === 'failed'    ? '#ef4444' :
+                      task.status === 'reviewing' ? '#f59e0b' :
+                      '#6b7280';
+                    const lastOutput = Array.isArray(task.output) && task.output.length > 0
+                      ? String(task.output[task.output.length - 1]).slice(0, 120)
+                      : '';
+                    return (
+                      <div key={task.id} className="border border-[#30363d] rounded-md p-3 bg-[#161b22]">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-mono text-xs text-[#c9d1d9] font-semibold truncate">{task.title}</span>
+                          <span
+                            className="font-mono text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0 ml-2"
+                            style={{ color: statusColor, background: `${statusColor}20`, border: `1px solid ${statusColor}40` }}
+                          >
+                            {task.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-[#484f58]">
+                          <span>{task.agent}</span>
+                          <span>·</span>
+                          <span>{task.project}</span>
+                          <span>·</span>
+                          <span>{task.id}</span>
+                        </div>
+                        {lastOutput && (
+                          <div className="mt-2 font-mono text-[10px] text-[#8b949e] truncate bg-[#0d1117] rounded px-2 py-1">
+                            {lastOutput}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center">
+                <div className="text-5xl mb-4 opacity-10">📊</div>
+                <p className="font-mono text-xs text-[#484f58]">Select a DAG or plan a new one</p>
+              </div>
+            )}
           </div>
         )}
       </div>
