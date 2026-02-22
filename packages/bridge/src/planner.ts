@@ -52,9 +52,21 @@ export async function generateDagFromBrief(
   input: PlannerInput,
   apiKey?: string,
 ): Promise<PlannerOutput> {
-  const key = apiKey || process.env.OPENROUTER_API_KEY;
+  let key = apiKey || process.env.OPENROUTER_API_KEY;
+
+  // Fallback: try loading from configService (same as chat endpoint)
   if (!key) {
-    throw new Error('OPENROUTER_API_KEY is required for the Planner agent');
+    try {
+      const { configService } = await import('./routes/config.js');
+      if (configService) {
+        const entry = await configService.getConfig('OPENROUTER_API_KEY', true);
+        if (entry && entry.value) key = entry.value;
+      }
+    } catch { /* config not available */ }
+  }
+
+  if (!key) {
+    throw new Error('OPENROUTER_API_KEY is required for the Planner agent. Set it via environment variable or in Settings > Config.');
   }
 
   const plannerRole = AGENT_ROLES['planner'];

@@ -163,7 +163,7 @@ app.get('/tasks/:id', (c) => {
   if (!task) {
     return c.json({ error: 'Task not found' }, 404);
   }
-  return c.json({ task });
+  return c.json(task);
 });
 
 // POST /tasks - Create and optionally run a task
@@ -172,19 +172,57 @@ app.post('/tasks', async (c) => {
     const body = await c.req.json();
     const newTask = await taskManager.createTask({
       title: body.title,
-      description: body.description,
+      description: body.description || body.briefing || '',
       project: body.project || 'default',
       agent: body.agent || 'claude-code',
-      briefing: body.briefing || body.description,
+      briefing: body.briefing || body.description || '',
+      role: body.role,
+      allowed_files: body.allowed_files,
+      blocked_files: body.blocked_files,
+      verification: body.verification,
     });
     
     // Auto-start the task
     taskRunner.runTask(newTask).catch(err => console.error('Failed to run task:', err));
     
-    return c.json({ task: newTask }, 201);
+    return c.json(newTask, 201);
   } catch (error) {
     console.error('Failed to create task:', error);
     return c.json({ error: error instanceof Error ? error.message : 'Failed to create task' }, 500);
+  }
+});
+
+// GET /tasks/:id/diff - Get task diff
+app.get('/tasks/:id/diff', (c) => {
+  const id = c.req.param('id');
+  const task = taskManager.getTask(id);
+  if (!task) return c.json({ error: 'Task not found' }, 404);
+  return c.json({ diff: task.diff || '' });
+});
+
+// POST /tasks/:id/approve - Approve and commit task changes
+app.post('/tasks/:id/approve', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const result = await taskManager.approveTask(id, body);
+    if (!result.success) return c.json({ error: result.message }, 404);
+    return c.json({ ok: true, message: result.message, commit_sha: 'n/a', branch: 'main' });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Approve failed' }, 500);
+  }
+});
+
+// POST /tasks/:id/reject - Reject task
+app.post('/tasks/:id/reject', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const result = await taskManager.rejectTask(id, body);
+    if (!result.success) return c.json({ error: result.message }, 404);
+    return c.json({ ok: true, message: result.message });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Reject failed' }, 500);
   }
 });
 
@@ -198,14 +236,14 @@ app.post('/chat', async (c) => {
     const body = await c.req.json();
     const { message, history } = body;
     
-    let apiKey = process.env.OPENROUTER_API_KEY || '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';
+    let apiKey = process.env.OPENROUTER_API_KEY || '';
     try {
       const apiKeyEntry = await configService.getConfig('OPENROUTER_API_KEY', true);
       if (apiKeyEntry && apiKeyEntry.value) {
         apiKey = apiKeyEntry.value;
       }
     } catch (e) {
-      console.warn('Could not read OPENROUTER_API_KEY from config, using fallback');
+      console.warn('Could not read OPENROUTER_API_KEY from config, using env fallback');
     }
 
     if (!apiKey) {

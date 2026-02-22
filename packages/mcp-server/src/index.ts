@@ -27,10 +27,22 @@ async function callBridge(path: string, options: RequestInit = {}): Promise<any>
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Bridge API error: ${response.status} ${error}`);
+    throw new Error(`Bridge API error (${response.status}): ${error}`);
   }
 
-  return response.json();
+  const json = await response.json();
+  return json;
+}
+
+// Helper to make tool results from text
+function textResult(text: string): CallToolResult {
+  return { content: [{ type: 'text', text }] };
+}
+
+// Helper to make error results
+function errorResult(error: unknown): CallToolResult {
+  const msg = error instanceof Error ? error.message : String(error);
+  return { content: [{ type: 'text', text: `❌ Error: ${msg}` }] };
 }
 
 // Create MCP server
@@ -60,17 +72,27 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const task = await callBridge('/tasks', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    });
+    try {
+      const result = await callBridge('/tasks', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
 
-    return {
-      content: [{
-        type: 'text',
-        text: `✅ Task created successfully!\n\nTask ID: ${task.id}\nStatus: ${task.status}\nAgent: ${task.agent}\n\nThe agent is now working on: "${task.title}"\n\nUse foreman_task_status to check progress.`,
-      }],
-    };
+      // Bridge returns the task object directly (or may wrap in { task })
+      const task = result.task || result;
+
+      return textResult(
+        `✅ Task created successfully!\n\n` +
+        `Task ID: ${task.id}\n` +
+        `Status: ${task.status}\n` +
+        `Agent: ${task.agent}\n` +
+        `Project: ${task.project}\n` +
+        `\nThe agent is now working on: "${task.title}"\n\n` +
+        `Use foreman_task_status to check progress.`
+      );
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
@@ -84,39 +106,36 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const task = await callBridge(`/tasks/${params.task_id}`);
+    try {
+      const result = await callBridge(`/tasks/${params.task_id}`);
+      const task = result.task || result;
 
-    let statusText = `📊 Task Status: ${task.status}\n\n`;
-    statusText += `Title: ${task.title}\n`;
-    statusText += `Agent: ${task.agent}\n`;
-    statusText += `Created: ${task.created_at}\n`;
+      let statusText = `📊 Task Status: ${task.status}\n\n`;
+      statusText += `Title: ${task.title}\n`;
+      statusText += `Agent: ${task.agent}\n`;
+      statusText += `Project: ${task.project}\n`;
+      statusText += `Created: ${task.created_at}\n`;
 
-    if (task.started_at) {
-      statusText += `Started: ${task.started_at}\n`;
+      if (task.started_at) statusText += `Started: ${task.started_at}\n`;
+      if (task.completed_at) statusText += `Completed: ${task.completed_at}\n`;
+
+      if (task.output && task.output.length > 0) {
+        const outputLines = task.output.slice(-50); // last 50 lines
+        statusText += `\n📝 Agent Output (last ${outputLines.length} lines):\n${outputLines.join('\n')}\n`;
+      }
+
+      if (task.error || task.agent_output) {
+        statusText += `\n❌ Error: ${task.error || task.agent_output}\n`;
+      }
+
+      if (task.status === 'completed') {
+        statusText += `\n✅ Task completed! Use foreman_get_diff to see changes.`;
+      }
+
+      return textResult(statusText);
+    } catch (error) {
+      return errorResult(error);
     }
-
-    if (task.completed_at) {
-      statusText += `Completed: ${task.completed_at}\n`;
-    }
-
-    if (task.output && task.output.length > 0) {
-      statusText += `\n📝 Agent Output:\n${task.output.join('\n')}\n`;
-    }
-
-    if (task.error) {
-      statusText += `\n❌ Error: ${task.error}\n`;
-    }
-
-    if (task.status === 'completed') {
-      statusText += `\n✅ Task completed! Use foreman_get_diff to see changes.`;
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: statusText,
-      }],
-    };
   }
 );
 
@@ -130,23 +149,20 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const result = await callBridge(`/tasks/${params.task_id}/diff`);
+    try {
+      const result = await callBridge(`/tasks/${params.task_id}/diff`);
 
-    if (!result.diff || result.diff.trim() === '') {
-      return {
-        content: [{
-          type: 'text',
-          text: '📝 No changes detected. The agent may still be working or the task produced no file modifications.',
-        }],
-      };
+      if (!result.diff || result.diff.trim() === '') {
+        return textResult('📝 No changes detected. The agent may still be working or the task produced no file modifications.');
+      }
+
+      return textResult(
+        `📝 Git Diff for Task ${params.task_id}:\n\n\`\`\`diff\n${result.diff}\n\`\`\`\n\n` +
+        `Use foreman_approve to commit these changes or foreman_reject to discard them.`
+      );
+    } catch (error) {
+      return errorResult(error);
     }
-
-    return {
-      content: [{
-        type: 'text',
-        text: `📝 Git Diff for Task ${params.task_id}:\n\n\`\`\`diff\n${result.diff}\n\`\`\`\n\nUse foreman_approve to commit these changes or foreman_reject to discard them.`,
-      }],
-    };
   }
 );
 
@@ -161,17 +177,20 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const result = await callBridge(`/tasks/${params.task_id}/approve`, {
-      method: 'POST',
-      body: JSON.stringify({ push: params.push }),
-    });
+    try {
+      const result = await callBridge(`/tasks/${params.task_id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ push: params.push }),
+      });
 
-    return {
-      content: [{
-        type: 'text',
-        text: `✅ Task approved and committed!\n\nCommit: ${result.commit_sha}\nBranch: ${result.branch}\n${params.push ? '📤 Pushed to remote' : '💾 Committed locally (not pushed)'}`,
-      }],
-    };
+      return textResult(
+        `✅ Task approved!\n\n` +
+        `${result.message || 'Changes committed.'}\n` +
+        `${params.push ? '📤 Pushed to remote' : '💾 Committed locally'}`
+      );
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
@@ -187,28 +206,23 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const result = await callBridge(`/tasks/${params.task_id}/reject`, {
-      method: 'POST',
-      body: JSON.stringify({
-        feedback: params.feedback,
-        retry: params.retry,
-      }),
-    });
+    try {
+      await callBridge(`/tasks/${params.task_id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({
+          feedback: params.feedback,
+          retry: params.retry,
+        }),
+      });
 
-    let text = `❌ Task rejected.\n`;
-    if (params.feedback) {
-      text += `\nFeedback: ${params.feedback}\n`;
-    }
-    if (params.retry) {
-      text += `\n🔄 Task will be retried with feedback.`;
-    }
+      let text = `❌ Task rejected.\n`;
+      if (params.feedback) text += `\nFeedback: ${params.feedback}\n`;
+      if (params.retry) text += `\n🔄 Task will be retried with feedback.`;
 
-    return {
-      content: [{
-        type: 'text',
-        text,
-      }],
-    };
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
@@ -228,17 +242,24 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const dag = await callBridge('/dags', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    });
+    try {
+      const dag = await callBridge('/dags', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
 
-    return {
-      content: [{
-        type: 'text',
-        text: `✅ DAG created successfully!\n\nDAG ID: ${dag.id}\nStatus: ${dag.status}\n\nUse foreman_execute_dag to start it, or foreman_dag_status to check progress.`,
-      }],
-    };
+      return textResult(
+        `✅ DAG created successfully!\n\n` +
+        `DAG ID: ${dag.id}\n` +
+        `Name: ${dag.name}\n` +
+        `Status: ${dag.status}\n` +
+        `Nodes: ${dag.nodes?.length || 0}\n` +
+        `Edges: ${dag.edges?.length || 0}\n\n` +
+        `Use foreman_execute_dag to start it, or foreman_dag_status to check progress.`
+      );
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
@@ -252,16 +273,20 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const dag = await callBridge(`/dags/${params.dag_id}/execute`, {
-      method: 'POST',
-    });
+    try {
+      const dag = await callBridge(`/dags/${params.dag_id}/execute`, {
+        method: 'POST',
+      });
 
-    return {
-      content: [{
-        type: 'text',
-        text: `🚀 DAG execution started!\n\nDAG ID: ${dag.id}\nStatus: ${dag.status}\n\nUse foreman_dag_status to check progress.`,
-      }],
-    };
+      return textResult(
+        `🚀 DAG execution started!\n\n` +
+        `DAG ID: ${dag.id}\n` +
+        `Status: ${dag.status}\n\n` +
+        `Use foreman_dag_status to check progress.`
+      );
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
@@ -275,27 +300,27 @@ server.registerTool(
     },
   },
   async (params): Promise<CallToolResult> => {
-    const dag = await callBridge(`/dags/${params.dag_id}`);
+    try {
+      const dag = await callBridge(`/dags/${params.dag_id}`);
 
-    let statusText = `📊 DAG Status: ${dag.status}\n\n`;
-    statusText += `Name: ${dag.name}\n`;
-    statusText += `Project: ${dag.project}\n`;
-    statusText += `Created: ${dag.created_at}\n\n`;
-    
-    statusText += `Nodes:\n`;
-    for (const node of dag.nodes) {
-      statusText += `- [${node.status}] ${node.title} (${node.type})\n`;
-      if (node.error) {
-        statusText += `  ❌ Error: ${node.error}\n`;
+      let statusText = `📊 DAG Status: ${dag.status}\n\n`;
+      statusText += `Name: ${dag.name}\n`;
+      statusText += `Project: ${dag.project}\n`;
+      statusText += `Created: ${dag.created_at}\n`;
+      if (dag.started_at) statusText += `Started: ${dag.started_at}\n`;
+      if (dag.completed_at) statusText += `Completed: ${dag.completed_at}\n`;
+      statusText += `\nNodes:\n`;
+
+      for (const node of (dag.nodes || [])) {
+        const icon = node.status === 'completed' ? '✅' : node.status === 'running' ? '🔄' : node.status === 'failed' ? '❌' : '⏳';
+        statusText += `${icon} [${node.status}] ${node.title} (${node.type}${node.role ? `, role: ${node.role}` : ''})\n`;
+        if (node.error) statusText += `   Error: ${node.error}\n`;
       }
-    }
 
-    return {
-      content: [{
-        type: 'text',
-        text: statusText,
-      }],
-    };
+      return textResult(statusText);
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
@@ -365,15 +390,77 @@ server.registerTool(
     try {
       const result = await callBridge('/roles');
       let text = '🎭 Available Agent Roles:\n\n';
-      for (const role of result.roles) {
+      for (const role of (result.roles || [])) {
         text += `**${role.name}** (\`${role.id}\`)\n`;
-        text += `${role.description}\n`;
-        text += `Capabilities: ${role.capabilities.join(', ')}\n`;
-        text += `Model: ${role.model}\n\n`;
+        text += `  ${role.description}\n`;
+        text += `  Capabilities: ${role.capabilities?.join(', ') || 'N/A'}\n`;
+        text += `  Model: ${role.model}\n\n`;
       }
-      return { content: [{ type: 'text', text }] };
-    } catch (error: any) {
-      return { content: [{ type: 'text', text: `❌ Failed to list roles: ${error.message}` }] };
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// Tool 11: List Tasks
+server.registerTool(
+  'foreman_list_tasks',
+  {
+    description: 'List all tasks in the system',
+    inputSchema: {},
+  },
+  async (): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/tasks');
+      const tasks = result.tasks || result || [];
+
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        return textResult('📋 No tasks found.');
+      }
+
+      let text = `📋 Tasks (${tasks.length}):\n\n`;
+      for (const t of tasks) {
+        const icon = t.status === 'completed' ? '✅' : t.status === 'running' ? '🔄' : t.status === 'failed' ? '❌' : '⏳';
+        text += `${icon} **${t.title || 'Untitled'}** (ID: ${t.id})\n`;
+        text += `   Status: ${t.status} | Agent: ${t.agent} | Project: ${t.project}\n`;
+        if (t.created_at) text += `   Created: ${t.created_at}\n`;
+        text += '\n';
+      }
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// Tool 12: List DAGs
+server.registerTool(
+  'foreman_list_dags',
+  {
+    description: 'List all DAG workflows',
+    inputSchema: {},
+  },
+  async (): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/dags');
+      const dags = result.dags || result || [];
+
+      if (!Array.isArray(dags) || dags.length === 0) {
+        return textResult('📋 No DAGs found.');
+      }
+
+      let text = `📋 DAGs (${dags.length}):\n\n`;
+      for (const d of dags) {
+        const icon = d.status === 'completed' ? '✅' : d.status === 'running' ? '🔄' : d.status === 'failed' ? '❌' : '⏳';
+        text += `${icon} **${d.name}** (ID: ${d.id})\n`;
+        text += `   Status: ${d.status} | Nodes: ${d.nodes?.length || 0} | Project: ${d.project}\n`;
+        if (d.created_at) text += `   Created: ${d.created_at}\n`;
+        text += '\n';
+      }
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
     }
   }
 );
