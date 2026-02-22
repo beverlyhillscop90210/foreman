@@ -188,6 +188,13 @@ export class DagExecutor extends EventEmitter {
     return this.dags.get(id);
   }
 
+  /**
+   * Look up which DAG/node a task belongs to (for WS routing).
+   */
+  getDagNodeMapping(taskId: string): { dagId: string; nodeId: string } | undefined {
+    return this.taskToDag.get(taskId);
+  }
+
   listDags(): Dag[] {
     return Array.from(this.dags.values()).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -201,6 +208,59 @@ export class DagExecutor extends EventEmitter {
     this.dags.delete(id);
     this.saveDags();
     return true;
+  }
+
+  /**
+   * Dynamically add a node (and edges) to a running DAG — used for sub-agent spawning.
+   */
+  addNode(dagId: string, input: {
+    node: Partial<DagNode>;
+    edges: DagEdge[];
+  }): DagNode {
+    const dag = this.dags.get(dagId);
+    if (!dag) throw new Error(`DAG not found: ${dagId}`);
+
+    const nodeId = input.node.id || `sub-${randomBytes(4).toString('base64url')}`;
+    const roleId = input.node.role;
+    const roleScopes = roleId ? getRoleFileScopes(roleId) : null;
+
+    const newNode: DagNode = {
+      id: nodeId,
+      type: input.node.type || 'task',
+      title: input.node.title || `Sub-agent ${nodeId}`,
+      briefing: input.node.briefing,
+      agent: input.node.agent || 'claude-code',
+      role: roleId,
+      status: 'pending',
+      project: input.node.project || dag.project,
+      allowed_files: input.node.allowed_files || roleScopes?.allowed,
+      blocked_files: input.node.blocked_files || roleScopes?.blocked,
+      artifacts: input.node.artifacts,
+      gate_condition: input.node.gate_condition,
+    };
+
+    // Validate new edges
+    const allNodeIds = new Set(dag.nodes.map(n => n.id));
+    allNodeIds.add(nodeId);
+    for (const edge of input.edges) {
+      if (!allNodeIds.has(edge.from)) throw new Error(`Edge references unknown source: ${edge.from}`);
+      if (!allNodeIds.has(edge.to)) throw new Error(`Edge references unknown target: ${edge.to}`);
+    }
+
+    dag.nodes.push(newNode);
+    dag.edges.push(...input.edges);
+    dag.updated_at = new Date().toISOString();
+    this.saveDags();
+
+    this.emit('dag:node:added', { dag, node: newNode, edges: input.edges });
+    console.log(`  + Sub-agent node "${newNode.title}" added to DAG ${dagId}`);
+
+    // If DAG is running, try to advance (might pick up the new node)
+    if (dag.status === 'running') {
+      this.advanceDag(dag);
+    }
+
+    return newNode;
   }
 
   // ── Execution ──────────────────────────────────────────────

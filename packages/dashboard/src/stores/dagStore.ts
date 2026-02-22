@@ -60,11 +60,14 @@ export interface AgentRole {
 
 // ── Store ──────────────────────────────────────────────────────
 
+const MAX_TERMINAL_LINES = 300;
+
 interface DagStore {
   dags: Dag[];
   roles: AgentRole[];
   selectedDagId: string | null;
   selectedNodeId: string | null;
+  nodeTerminals: Record<string, string[]>;
   loading: boolean;
   error: string | null;
 
@@ -76,6 +79,7 @@ interface DagStore {
   approveGate: (dagId: string, nodeId: string) => Promise<void>;
   deleteDag: (id: string) => Promise<void>;
   planDag: (project: string, brief: string) => Promise<Dag | null>;
+  handleWsMessage: (msg: any) => void;
 }
 
 export const useDagStore = create<DagStore>((set, get) => ({
@@ -83,6 +87,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
   roles: [],
   selectedDagId: null,
   selectedNodeId: null,
+  nodeTerminals: {},
   loading: false,
   error: null,
 
@@ -111,7 +116,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
 
   executeDag: async (id) => {
     try {
-      set({ error: null });
+      set({ error: null, nodeTerminals: {} });
       await api.fetch(`/dags/${id}/execute`, { method: 'POST' });
       await get().fetchDags();
     } catch (err: any) {
@@ -156,6 +161,69 @@ export const useDagStore = create<DagStore>((set, get) => ({
     } catch (err: any) {
       set({ error: err.message, loading: false });
       return null;
+    }
+  },
+
+  handleWsMessage: (msg: any) => {
+    const state = get();
+
+    switch (msg.type) {
+      // ── Live terminal output per node ──────────────────
+      case 'dag:node:output': {
+        const nodeId = msg.nodeId as string;
+        const line = msg.line as string;
+        if (!nodeId || !line) return;
+
+        const existing = state.nodeTerminals[nodeId] || [];
+        const updated = [...existing, line];
+        // Trim to prevent memory bloat
+        if (updated.length > MAX_TERMINAL_LINES) {
+          updated.splice(0, updated.length - MAX_TERMINAL_LINES);
+        }
+        set({ nodeTerminals: { ...state.nodeTerminals, [nodeId]: updated } });
+        break;
+      }
+
+      // ── Node status changes (real-time, no refetch) ────
+      case 'dag:node:started':
+      case 'dag:node:completed':
+      case 'dag:node:failed':
+      case 'dag:node:waiting_approval': {
+        const dagId = msg.dagId as string;
+        const nodeData = msg.node;
+        if (!dagId || !nodeData) return;
+
+        const dags = state.dags.map(d => {
+          if (d.id !== dagId) return d;
+          return {
+            ...d,
+            status: d.status === 'created' ? 'running' as DagStatus : d.status,
+            nodes: d.nodes.map(n =>
+              n.id === nodeData.id ? { ...n, ...nodeData } : n
+            ),
+            updated_at: new Date().toISOString(),
+          };
+        });
+        set({ dags });
+        break;
+      }
+
+      // ── DAG-level events → refetch ─────────────────────
+      case 'dag:created':
+      case 'dag:started':
+      case 'dag:completed': {
+        get().fetchDags();
+        break;
+      }
+
+      // ── Dynamic node added (sub-agent spawn) ───────────
+      case 'dag:node:added': {
+        get().fetchDags();
+        break;
+      }
+
+      default:
+        break;
     }
   },
 }));

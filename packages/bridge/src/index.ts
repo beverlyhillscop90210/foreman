@@ -112,6 +112,18 @@ taskRunner.on('task:output', (event) => {
     taskManager.updateTaskStatus(task.id, task.status, { output: task.output });
   }
   wsManager.broadcast({ type: 'agent_output', taskId: event.taskId, line: event.line, stream: event.stream });
+
+  // Also emit DAG-specific terminal event so dashboard can route it to the correct node
+  const dagMapping = dagExecutor.getDagNodeMapping(event.taskId);
+  if (dagMapping) {
+    wsManager.broadcast({
+      type: 'dag:node:output',
+      dagId: dagMapping.dagId,
+      nodeId: dagMapping.nodeId,
+      line: event.line,
+      stream: event.stream,
+    });
+  }
 });
 
 // Wire up KanbanCoordinator events to WebSocket
@@ -300,6 +312,7 @@ dagExecutor.on('dag:node:started', (e) => wsManager.broadcast({ type: 'dag:node:
 dagExecutor.on('dag:node:completed', (e) => wsManager.broadcast({ type: 'dag:node:completed', dagId: e.dag.id, node: e.node }));
 dagExecutor.on('dag:node:failed', (e) => wsManager.broadcast({ type: 'dag:node:failed', dagId: e.dag.id, node: e.node }));
 dagExecutor.on('dag:node:waiting_approval', (e) => wsManager.broadcast({ type: 'dag:node:waiting_approval', dagId: e.dag.id, node: e.node }));
+dagExecutor.on('dag:node:added', (e) => wsManager.broadcast({ type: 'dag:node:added', dagId: e.dag.id, node: e.node, edges: e.edges }));
 
 // Mount Config routes
 app.route('/config', configRouter);

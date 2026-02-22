@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDagStore, type Dag } from '../stores/dagStore';
 import { DagFlowGraph, NodeDetailPanel } from '../components/dag/DagFlowGraph';
 import { PlannerDialog } from '../components/dag/PlannerDialog';
+import { wsClient } from '../lib/ws';
 
 // ── DAG List Sidebar ───────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function DagActionBar({ dag }: { dag: Dag }) {
 // ── Main Dashboard Page ────────────────────────────────────────
 
 export const DashboardPage = () => {
-  const { dags, selectedDagId, selectedNodeId, loading, error, fetchDags, fetchRoles } = useDagStore();
+  const { dags, selectedDagId, selectedNodeId, loading, error, fetchDags, fetchRoles, handleWsMessage } = useDagStore();
   const [showPlanner, setShowPlanner] = useState(false);
 
   useEffect(() => {
@@ -119,11 +120,23 @@ export const DashboardPage = () => {
     fetchRoles();
   }, []);
 
-  // Auto-refresh while any DAG is running
+  // Connect WebSocket for real-time DAG updates
+  useEffect(() => {
+    wsClient.connect();
+    const unsub = wsClient.onMessage((msg: any) => {
+      // Route DAG-related WS messages to the store
+      if (typeof msg.type === 'string' && msg.type.startsWith('dag:')) {
+        handleWsMessage(msg);
+      }
+    });
+    return unsub;
+  }, [handleWsMessage]);
+
+  // Auto-refresh while any DAG is running (fallback for missed WS events)
   useEffect(() => {
     const hasRunning = dags.some(d => d.status === 'running');
     if (!hasRunning) return;
-    const interval = setInterval(fetchDags, 3000);
+    const interval = setInterval(fetchDags, 5000);
     return () => clearInterval(interval);
   }, [dags]);
 

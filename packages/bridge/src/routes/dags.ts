@@ -114,6 +114,26 @@ export function createDagRoutes(dagExecutor: DagExecutor, knowledgeService?: Kno
   });
 
   /**
+   * POST /:id/nodes - Add a node dynamically (sub-agent spawning)
+   */
+  app.post('/:id/nodes', async (c) => {
+    try {
+      const dagId = c.req.param('id');
+      const body = await c.req.json();
+      if (!body.node) {
+        return c.json({ error: 'node is required' }, 400);
+      }
+      const newNode = dagExecutor.addNode(dagId, {
+        node: body.node,
+        edges: body.edges || [],
+      });
+      return c.json({ node: newNode }, 201);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : 'Failed to add node' }, 400);
+    }
+  });
+
+  /**
    * DELETE /:id - Delete a DAG
    */
   app.delete('/:id', (c) => {
