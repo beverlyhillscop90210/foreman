@@ -489,29 +489,70 @@ function layoutDag(
     currentY += layerHeight + GAP_Y;
   }
 
-  // Build edges with orthogonal (smoothstep) routing
+  // ── Edge color palette ──────────────────────────────────────
+  // Assign a unique color per source node so you can visually trace
+  // which parent feeds which child — even in dense fan-out graphs.
+  const EDGE_PALETTE = [
+    '#a855f7', // purple
+    '#3b82f6', // blue
+    '#06b6d4', // cyan
+    '#22c55e', // green
+    '#eab308', // yellow
+    '#f97316', // orange
+    '#ec4899', // pink
+    '#8b5cf6', // violet
+    '#14b8a6', // teal
+    '#f43f5e', // rose
+  ];
+
+  // Build a stable color map: each unique source node gets its own hue.
+  // If the source has a role, prefer its role accent color for consistency.
+  const sourceIds = [...new Set(dag.edges.map(e => e.from))];
+  const edgeColorMap = new Map<string, string>();
+  sourceIds.forEach((srcId, idx) => {
+    const srcNode = nodeMap.get(srcId);
+    const roleColor = srcNode?.role ? ROLE_ACCENT[srcNode.role] : undefined;
+    edgeColorMap.set(srcId, roleColor || EDGE_PALETTE[idx % EDGE_PALETTE.length]);
+  });
+
+  // Build edges with orthogonal (smoothstep) routing + color coding
   const rfEdges: Edge[] = dag.edges.map((e, i) => {
     const sourceNode = nodeMap.get(e.from);
     const targetNode = nodeMap.get(e.to);
-    const sourceCompleted = sourceNode?.status === 'completed';
-    const targetRunning = targetNode?.status === 'running';
+    const sourceStatus = sourceNode?.status || 'pending';
+    const targetStatus = targetNode?.status || 'pending';
 
-    let strokeColor = '#30363d';
-    let strokeWidth = 1.5;
-    let opacity = 0.4;
+    const baseColor = edgeColorMap.get(e.from) || '#30363d';
+    const isActive = targetStatus === 'running' || sourceStatus === 'running';
+    const isCompleted = sourceStatus === 'completed';
+    const isFailed = sourceStatus === 'failed' || targetStatus === 'failed';
+    const isPending = sourceStatus === 'pending' && targetStatus === 'pending';
 
-    if (sourceCompleted && targetRunning) {
-      strokeColor = '#3b82f6';
+    let strokeColor = baseColor;
+    let strokeWidth = 2;
+    let opacity = 0.6;
+    let animated = false;
+
+    if (isFailed) {
+      strokeColor = '#ef4444';
       strokeWidth = 2;
+      opacity = 0.5;
+    } else if (isActive) {
+      // Active path: full color, animated, bright
+      strokeColor = baseColor;
+      strokeWidth = 2.5;
       opacity = 1;
-    } else if (sourceCompleted) {
-      strokeColor = '#22c55e';
+      animated = true;
+    } else if (isCompleted) {
+      // Completed path: solid, slightly dimmer
+      strokeColor = baseColor;
       strokeWidth = 2;
-      opacity = 0.7;
-    } else if (targetRunning) {
-      strokeColor = '#3b82f6';
+      opacity = 0.8;
+    } else if (isPending) {
+      // Not yet reached: very dim
+      strokeColor = '#30363d';
       strokeWidth = 1.5;
-      opacity = 0.6;
+      opacity = 0.3;
     }
 
     return {
@@ -519,7 +560,7 @@ function layoutDag(
       source: e.from,
       target: e.to,
       type: 'smoothstep',
-      animated: targetRunning,
+      animated,
       style: { stroke: strokeColor, strokeWidth, opacity },
       markerEnd: {
         type: MarkerType.ArrowClosed,
