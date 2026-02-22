@@ -27,7 +27,7 @@ export const AGENT_ROLES: Record<string, AgentRole> = {
     id: 'planner',
     name: 'Planner',
     description: 'Decomposes high-level briefs into executable DAGs with correct task ordering, parallelism, and gate placement.',
-    model: 'anthropic/claude-sonnet-4-20250514',
+    model: 'anthropic/claude-sonnet-4',
     system_prompt: `You are the Planner agent for the Foreman orchestration system.
 
 Your job is to decompose a high-level project brief into an executable DAG (Directed Acyclic Graph).
@@ -51,7 +51,7 @@ Output ONLY valid JSON matching the DAG schema. No prose outside the JSON block.
     id: 'backend-architect',
     name: 'Backend Architect',
     description: 'Designs APIs, database schemas, system architecture, and integration patterns.',
-    model: 'anthropic/claude-sonnet-4-20250514',
+    model: 'anthropic/claude-sonnet-4',
     system_prompt: `You are a Backend Architect agent.
 
 Your responsibilities:
@@ -77,7 +77,7 @@ Always explain your architectural decisions briefly in code comments.`,
     id: 'frontend-architect',
     name: 'Frontend Architect',
     description: 'Designs UI components, state management patterns, and frontend architecture.',
-    model: 'anthropic/claude-sonnet-4-20250514',
+    model: 'anthropic/claude-sonnet-4',
     system_prompt: `You are a Frontend Architect agent.
 
 Your responsibilities:
@@ -103,7 +103,7 @@ Always consider responsive design, loading states, and error boundaries.`,
     id: 'security-auditor',
     name: 'Security Auditor',
     description: 'Reviews code for security vulnerabilities, checks auth flows, and validates input handling.',
-    model: 'anthropic/claude-sonnet-4-20250514',
+    model: 'anthropic/claude-sonnet-4',
     system_prompt: `You are a Security Auditor agent.
 
 Your responsibilities:
@@ -132,7 +132,7 @@ Be thorough but avoid false positives. If code is secure, say so.`,
     id: 'implementer',
     name: 'Implementer',
     description: 'Writes production code following specifications from architect agents.',
-    model: 'anthropic/claude-sonnet-4-20250514',
+    model: 'anthropic/claude-sonnet-4',
     system_prompt: `You are an Implementer agent.
 
 Your responsibilities:
@@ -157,7 +157,7 @@ Rules:
     id: 'reviewer',
     name: 'Reviewer',
     description: 'Reviews code changes for correctness, style, performance, and best practices.',
-    model: 'anthropic/claude-sonnet-4-20250514',
+    model: 'anthropic/claude-sonnet-4',
     system_prompt: `You are a Code Reviewer agent.
 
 Your responsibilities:
