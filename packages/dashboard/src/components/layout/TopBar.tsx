@@ -13,6 +13,7 @@ export const TopBar = () => {
   const navLinks = [
     { path: '/', label: 'Dashboard' },
     { path: '/kanban', label: 'Kanban' },
+    { path: '/dags', label: 'DAGs' },
     { path: '/knowledge', label: 'Knowledge' },
     { path: '/settings', label: 'Settings' },
   ];

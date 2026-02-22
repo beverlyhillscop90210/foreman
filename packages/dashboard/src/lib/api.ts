@@ -49,7 +49,7 @@ class BridgeAPI {
     this.authToken = authToken;
   }
 
-  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
+  async fetch<T>(path: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers = {
       'Content-Type': 'application/json',
