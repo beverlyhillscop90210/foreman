@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useDagStore, type Dag } from '../stores/dagStore';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useDagStore, type Dag, type DagNode } from '../stores/dagStore';
 import { DagFlowGraph, NodeDetailPanel } from '../components/dag/DagFlowGraph';
 import { PlannerDialog } from '../components/dag/PlannerDialog';
 import { wsClient } from '../lib/ws';
@@ -109,11 +109,287 @@ function DagActionBar({ dag }: { dag: Dag }) {
   );
 }
 
+// ── Resizable Divider ──────────────────────────────────────────
+
+function ResizeDivider({ onDrag }: { onDrag: (deltaX: number) => void }) {
+  const isDragging = useRef(false);
+  const lastX = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true;
+    lastX.current = e.clientX;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = ev.clientX - lastX.current;
+      lastX.current = ev.clientX;
+      onDrag(delta);
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [onDrag]);
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      className="w-[5px] shrink-0 cursor-col-resize group relative z-10"
+      style={{ background: '#21262d' }}
+    >
+      <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-[#f0883e]/30 transition-colors" />
+      <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[3px] h-8 rounded-full bg-[#484f58] group-hover:bg-[#f0883e] transition-colors" />
+    </div>
+  );
+}
+
+// ── Metrics Panel (right side) ─────────────────────────────────
+
+const ROLE_COLORS: Record<string, string> = {
+  planner: '#a78bfa',
+  'backend-architect': '#60a5fa',
+  'frontend-architect': '#34d399',
+  'security-auditor': '#f87171',
+  implementer: '#fb923c',
+  reviewer: '#facc15',
+};
+
+function MetricCard({ label, value, color, sub }: { label: string; value: string | number; color?: string; sub?: string }) {
+  return (
+    <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3">
+      <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-1">{label}</div>
+      <div className="font-mono text-lg font-bold" style={{ color: color || '#c9d1d9' }}>{value}</div>
+      {sub && <div className="font-mono text-[9px] text-[#484f58] mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function ElapsedTimer({ startedAt }: { startedAt?: string }) {
+  const [elapsed, setElapsed] = useState('00:00');
+
+  useEffect(() => {
+    if (!startedAt) return;
+    const tick = () => {
+      const s = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      setElapsed(`${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [startedAt]);
+
+  return <>{elapsed}</>;
+}
+
+function DagMetricsPanel({ dag }: { dag: Dag }) {
+  const stats = useMemo(() => {
+    const total = dag.nodes.length;
+    const completed = dag.nodes.filter(n => n.status === 'completed').length;
+    const running = dag.nodes.filter(n => n.status === 'running').length;
+    const failed = dag.nodes.filter(n => n.status === 'failed').length;
+    const pending = dag.nodes.filter(n => n.status === 'pending').length;
+    const waiting = dag.nodes.filter(n => n.status === 'waiting_approval').length;
+    const skipped = dag.nodes.filter(n => n.status === 'skipped').length;
+    return { total, completed, running, failed, pending, waiting, skipped };
+  }, [dag.nodes]);
+
+  const roleBreakdown = useMemo(() => {
+    const counts: Record<string, { total: number; completed: number; running: number; failed: number }> = {};
+    dag.nodes.forEach(n => {
+      const role = n.role || n.type;
+      if (!counts[role]) counts[role] = { total: 0, completed: 0, running: 0, failed: 0 };
+      counts[role].total++;
+      if (n.status === 'completed') counts[role].completed++;
+      if (n.status === 'running') counts[role].running++;
+      if (n.status === 'failed') counts[role].failed++;
+    });
+    return counts;
+  }, [dag.nodes]);
+
+  const completionPct = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
+
+  // Duration calculation
+  const duration = useMemo(() => {
+    if (!dag.started_at) return null;
+    if (dag.completed_at) {
+      const ms = new Date(dag.completed_at).getTime() - new Date(dag.started_at).getTime();
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
+    return null; // running — use ElapsedTimer
+  }, [dag.started_at, dag.completed_at]);
+
+  // Recently completed nodes (last 5)
+  const recentNodes = useMemo(() => {
+    return [...dag.nodes]
+      .filter(n => n.completed_at)
+      .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())
+      .slice(0, 5);
+  }, [dag.nodes]);
+
+  return (
+    <div className="h-full bg-[#0d1117] border-l border-[#30363d] flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="h-10 border-b border-[#30363d] bg-[#161b22] flex items-center px-3 shrink-0">
+        <span className="font-mono text-xs text-[#c9d1d9] font-bold">Metrics & Telemetry</span>
+      </div>
+
+      <div className="flex-1 overflow-auto p-3 space-y-4">
+        {/* Overview Cards */}
+        <div className="grid grid-cols-2 gap-2">
+          <MetricCard label="Progress" value={`${completionPct}%`} color="#22c55e" sub={`${stats.completed}/${stats.total} nodes`} />
+          <MetricCard
+            label="Runtime"
+            value={duration || (dag.started_at ? '' : '—')}
+            color="#3b82f6"
+            sub={dag.status === 'running' ? 'elapsed' : dag.status}
+          >
+            {/* Rendered as children won't work — handle inline */}
+          </MetricCard>
+        </div>
+
+        {/* Runtime with live timer */}
+        {!duration && dag.started_at && dag.status === 'running' && (
+          <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3 -mt-2">
+            <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-1">Runtime (live)</div>
+            <div className="font-mono text-lg font-bold text-[#3b82f6]">
+              <ElapsedTimer startedAt={dag.started_at} />
+            </div>
+            <div className="font-mono text-[9px] text-[#484f58] mt-0.5">running…</div>
+          </div>
+        )}
+
+        {/* Status Breakdown */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3">
+          <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-2">Node Status</div>
+          <div className="space-y-1.5">
+            {[
+              { label: 'Completed', count: stats.completed, color: '#22c55e' },
+              { label: 'Running', count: stats.running, color: '#3b82f6' },
+              { label: 'Pending', count: stats.pending, color: '#6b7280' },
+              { label: 'Failed', count: stats.failed, color: '#ef4444' },
+              { label: 'Waiting Approval', count: stats.waiting, color: '#eab308' },
+              { label: 'Skipped', count: stats.skipped, color: '#484f58' },
+            ].filter(s => s.count > 0).map(s => (
+              <div key={s.label} className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                <span className="font-mono text-xs text-[#c9d1d9] flex-1">{s.label}</span>
+                <span className="font-mono text-xs font-bold" style={{ color: s.color }}>{s.count}</span>
+                <div className="w-16 h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${(s.count / stats.total) * 100}%`, background: s.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Role Breakdown */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3">
+          <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-2">By Role</div>
+          <div className="space-y-2">
+            {Object.entries(roleBreakdown).map(([role, rc]) => {
+              const accent = ROLE_COLORS[role] || '#6b7280';
+              const pct = rc.total > 0 ? Math.round((rc.completed / rc.total) * 100) : 0;
+              return (
+                <div key={role}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="font-mono text-[10px] font-bold" style={{ color: accent }}>{role}</span>
+                    <span className="font-mono text-[9px] text-[#484f58]">{rc.completed}/{rc.total}</span>
+                  </div>
+                  <div className="h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: accent }} />
+                  </div>
+                  {rc.running > 0 && (
+                    <span className="font-mono text-[9px] text-blue-400">⚡ {rc.running} running</span>
+                  )}
+                  {rc.failed > 0 && (
+                    <span className="font-mono text-[9px] text-red-400 ml-2">✗ {rc.failed} failed</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* DAG Info */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3">
+          <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-2">DAG Info</div>
+          <div className="space-y-1.5">
+            {[
+              ['Project', dag.project],
+              ['Created by', dag.created_by],
+              ['Approval', dag.approval_mode],
+              ['Created', new Date(dag.created_at).toLocaleString()],
+              ['Started', dag.started_at ? new Date(dag.started_at).toLocaleString() : '—'],
+              ['Completed', dag.completed_at ? new Date(dag.completed_at).toLocaleString() : '—'],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between">
+                <span className="font-mono text-[10px] text-[#484f58]">{label}</span>
+                <span className="font-mono text-[10px] text-[#c9d1d9] truncate ml-2 max-w-[160px]">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        {recentNodes.length > 0 && (
+          <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3">
+            <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-2">Recent Activity</div>
+            <div className="space-y-1.5">
+              {recentNodes.map(n => (
+                <div key={n.id} className="flex items-center gap-2">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${n.status === 'completed' ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="font-mono text-[10px] text-[#c9d1d9] truncate flex-1">{n.title}</span>
+                  <span className="font-mono text-[9px] text-[#484f58] shrink-0">
+                    {n.completed_at ? new Date(n.completed_at).toLocaleTimeString() : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Description */}
+        {dag.description && (
+          <div className="bg-[#161b22] border border-[#30363d] rounded-md p-3">
+            <div className="font-mono text-[9px] text-[#484f58] uppercase tracking-wider mb-1">Description</div>
+            <p className="font-mono text-xs text-[#8b949e] leading-relaxed whitespace-pre-wrap">{dag.description}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard Page ────────────────────────────────────────
 
 export const DashboardPage = () => {
   const { dags, selectedDagId, selectedNodeId, loading, error, fetchDags, fetchRoles, handleWsMessage } = useDagStore();
   const [showPlanner, setShowPlanner] = useState(false);
+
+  // Resizable split: percentage of available width for left (graph) pane
+  const [splitPct, setSplitPct] = useState(60);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleDrag = useCallback((deltaX: number) => {
+    if (!containerRef.current) return;
+    const containerW = containerRef.current.getBoundingClientRect().width;
+    const deltaPct = (deltaX / containerW) * 100;
+    setSplitPct(prev => Math.min(85, Math.max(30, prev + deltaPct)));
+  }, []);
 
   useEffect(() => {
     fetchDags();
@@ -124,7 +400,6 @@ export const DashboardPage = () => {
   useEffect(() => {
     wsClient.connect();
     const unsub = wsClient.onMessage((msg: any) => {
-      // Route DAG-related WS messages to the store
       if (typeof msg.type === 'string' && msg.type.startsWith('dag:')) {
         handleWsMessage(msg);
       }
@@ -170,24 +445,39 @@ export const DashboardPage = () => {
         </div>
       </div>
 
-      {/* Main Content: Graph + Node Detail */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Main Content: Resizable Split */}
+      <div ref={containerRef} className="flex-1 flex overflow-hidden">
         {selectedDag ? (
           <>
-            {/* Action bar */}
-            <DagActionBar dag={selectedDag} />
+            {/* Left Pane: Graph */}
+            <div className="flex flex-col overflow-hidden" style={{ width: `${splitPct}%` }}>
+              {/* Action bar */}
+              <DagActionBar dag={selectedDag} />
 
-            {/* Top: React Flow Graph */}
-            <div className={`${selectedNodeId ? 'h-[55%]' : 'flex-1'} transition-all duration-200`}>
-              <DagFlowGraph dag={selectedDag} selectedNodeId={selectedNodeId} />
+              {/* Graph area or graph + node detail */}
+              {selectedNodeId ? (
+                <>
+                  <div className="h-[55%] transition-all duration-200">
+                    <DagFlowGraph dag={selectedDag} selectedNodeId={selectedNodeId} />
+                  </div>
+                  <div className="h-[45%] shrink-0">
+                    <NodeDetailPanel dag={selectedDag} />
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1">
+                  <DagFlowGraph dag={selectedDag} selectedNodeId={selectedNodeId} />
+                </div>
+              )}
             </div>
 
-            {/* Bottom: Node Detail Panel (shown on node click) */}
-            {selectedNodeId && (
-              <div className="h-[45%] shrink-0">
-                <NodeDetailPanel dag={selectedDag} />
-              </div>
-            )}
+            {/* Resize Handle */}
+            <ResizeDivider onDrag={handleDrag} />
+
+            {/* Right Pane: Metrics & Telemetry */}
+            <div className="overflow-hidden" style={{ width: `${100 - splitPct}%` }}>
+              <DagMetricsPanel dag={selectedDag} />
+            </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#0d1117]">
