@@ -64,12 +64,14 @@ interface DagStore {
   dags: Dag[];
   roles: AgentRole[];
   selectedDagId: string | null;
+  selectedNodeId: string | null;
   loading: boolean;
   error: string | null;
 
   fetchDags: () => Promise<void>;
   fetchRoles: () => Promise<void>;
   selectDag: (id: string | null) => void;
+  selectNode: (id: string | null) => void;
   executeDag: (id: string) => Promise<void>;
   approveGate: (dagId: string, nodeId: string) => Promise<void>;
   deleteDag: (id: string) => Promise<void>;
@@ -80,6 +82,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
   dags: [],
   roles: [],
   selectedDagId: null,
+  selectedNodeId: null,
   loading: false,
   error: null,
 
@@ -102,7 +105,9 @@ export const useDagStore = create<DagStore>((set, get) => ({
     }
   },
 
-  selectDag: (id) => set({ selectedDagId: id }),
+  selectDag: (id) => set({ selectedDagId: id, selectedNodeId: null }),
+
+  selectNode: (id) => set({ selectedNodeId: id }),
 
   executeDag: async (id) => {
     try {
