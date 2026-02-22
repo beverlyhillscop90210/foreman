@@ -121,4 +121,21 @@ export class TaskManager {
     this.saveTasks();
     return { success: true, message: `Task ${id} rejected` };
   }
+
+  deleteTask(id: string): boolean {
+    const idx = this.tasks.findIndex((t) => t.id === id);
+    if (idx === -1) return false;
+    this.tasks.splice(idx, 1);
+    this.saveTasks();
+    console.log(`Deleted task ${id}`);
+    return true;
+  }
+
+  deleteAllTasks(): number {
+    const count = this.tasks.length;
+    this.tasks = [];
+    this.saveTasks();
+    console.log(`Deleted all ${count} tasks`);
+    return count;
+  }
 }

@@ -213,6 +213,32 @@ app.post('/tasks/:id/approve', async (c) => {
   }
 });
 
+// DELETE /tasks/:id - Delete a task
+app.delete('/tasks/:id', (c) => {
+  const id = c.req.param('id');
+  // Kill running process if any
+  const runningTasks = taskRunner.getRunningTasks();
+  const running = runningTasks.find(t => t.id === id);
+  if (running) {
+    taskRunner.failTask(id, 'Deleted by user');
+  }
+  const ok = taskManager.deleteTask(id);
+  if (!ok) return c.json({ error: 'Task not found' }, 404);
+  wsManager.broadcast({ type: 'task_event', event: 'deleted', taskId: id });
+  return c.json({ ok: true });
+});
+
+// DELETE /tasks - Delete all tasks
+app.delete('/tasks', (c) => {
+  // Kill all running processes
+  for (const t of taskRunner.getRunningTasks()) {
+    taskRunner.failTask(t.id, 'Deleted by user');
+  }
+  const count = taskManager.deleteAllTasks();
+  wsManager.broadcast({ type: 'task_event', event: 'cleared' });
+  return c.json({ ok: true, deleted: count });
+});
+
 // POST /tasks/:id/reject - Reject task
 app.post('/tasks/:id/reject', async (c) => {
   try {
@@ -327,6 +353,101 @@ app.post('/chat', async (c) => {
   } catch (error) {
     console.error('Chat error:', error);
     return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// POST /projects/init - Create a new project folder + optional private GitHub repo
+app.post('/projects/init', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { name, description, github_repo, github_org } = body;
+    if (!name) return c.json({ error: 'name is required' }, 400);
+
+    const projectsDir = process.env.PROJECTS_DIR || '/home/foreman/projects';
+    const { existsSync, mkdirSync } = await import('fs');
+    const { join } = await import('path');
+    const { execSync } = await import('child_process');
+
+    const projectDir = join(projectsDir, name);
+    if (existsSync(projectDir)) {
+      return c.json({ error: `Project directory already exists: ${projectDir}` }, 409);
+    }
+
+    mkdirSync(projectDir, { recursive: true });
+    // Init git
+    execSync('git init', { cwd: projectDir });
+    execSync('git checkout -b main', { cwd: projectDir });
+
+    // Create README
+    const readme = `# ${name}\n\n${description || 'Created by Foreman'}\n`;
+    const { writeFileSync } = await import('fs');
+    writeFileSync(join(projectDir, 'README.md'), readme);
+    execSync('git add . && git commit -m "Initial commit by Foreman"', { cwd: projectDir });
+
+    let repoUrl = '';
+    // Create GitHub repo if requested
+    if (github_repo !== false) {
+      const ghToken = process.env.GITHUB_TOKEN;
+      if (ghToken) {
+        try {
+          const repoName = github_repo || name;
+          const org = github_org || '';
+          const apiUrl = org
+            ? `https://api.github.com/orgs/${org}/repos`
+            : 'https://api.github.com/user/repos';
+
+          const ghResp = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${ghToken}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/vnd.github+json',
+            },
+            body: JSON.stringify({
+              name: repoName,
+              description: description || `Created by Foreman`,
+              private: true,
+              auto_init: false,
+            }),
+          });
+
+          if (ghResp.ok) {
+            const ghData = await ghResp.json() as any;
+            repoUrl = ghData.ssh_url || ghData.clone_url;
+            // Add remote and push
+            execSync(`git remote add origin ${repoUrl}`, { cwd: projectDir });
+            // Use deploy key if available
+            const deployKey = '/root/.ssh/github_deploy';
+            const { existsSync: exists2 } = await import('fs');
+            if (exists2(deployKey)) {
+              execSync(`GIT_SSH_COMMAND="ssh -i ${deployKey}" git push -u origin main`, { cwd: projectDir });
+            } else {
+              execSync(`git push -u origin main`, { cwd: projectDir, env: { ...process.env, GH_TOKEN: ghToken } });
+            }
+            console.log(`Created GitHub repo: ${repoUrl}`);
+          } else {
+            const errText = await ghResp.text();
+            console.warn(`GitHub repo creation failed: ${ghResp.status} ${errText}`);
+            repoUrl = `FAILED: ${ghResp.status}`;
+          }
+        } catch (ghErr: any) {
+          console.error('GitHub integration error:', ghErr.message);
+          repoUrl = `ERROR: ${ghErr.message}`;
+        }
+      } else {
+        repoUrl = 'SKIPPED: No GITHUB_TOKEN configured';
+      }
+    }
+
+    return c.json({
+      ok: true,
+      project_dir: projectDir,
+      project_name: name,
+      github_repo: repoUrl || 'not requested',
+    }, 201);
+  } catch (error) {
+    console.error('Project init error:', error);
+    return c.json({ error: error instanceof Error ? error.message : 'Init failed' }, 500);
   }
 });
 

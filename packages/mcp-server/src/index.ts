@@ -1,10 +1,45 @@
 #!/usr/bin/env node
+/**
+ * Foreman MCP Server — The control interface for the Foreman agentic orchestration system.
+ *
+ * ## Architecture
+ * Claude Desktop ←(MCP/stdio)→ This MCP Server ←(HTTP REST)→ Bridge API ←→ Agent Workers (Claude Code, etc.)
+ *
+ * ## How It Works
+ * Foreman runs AI coding agents on a remote server. Each agent gets a sandboxed project directory,
+ * a detailed briefing, and file scope constraints. The Bridge API (running on the server) manages
+ * tasks, DAGs, and agent processes. This MCP server is the CLI-style interface that Claude Desktop
+ * uses to control everything.
+ *
+ * ## Workflow Options
+ *
+ * ### Option A: Quick Single Task
+ * 1. foreman_init_project → creates project folder + private GitHub repo
+ * 2. foreman_create_task → creates + auto-starts a task
+ * 3. foreman_task_status → poll until status is "completed" or "failed" (poll every 15-30s)
+ * 4. foreman_get_diff → see what the agent changed
+ * 5. foreman_approve / foreman_reject → accept or reject changes
+ *
+ * ### Option B: Multi-Agent DAG Workflow (recommended for complex projects)
+ * 1. foreman_init_project → creates project folder + private GitHub repo
+ * 2. foreman_plan → AI planner decomposes a brief into a DAG of tasks with roles
+ * 3. foreman_execute_dag → starts the DAG (runs tasks in dependency order)
+ * 4. foreman_dag_status → poll until all nodes are "completed" (poll every 15-30s)
+ *    - Gate nodes pause execution until you call foreman_approve_gate
+ * 5. Review final output in the dashboard or via foreman_task_status per node
+ *
+ * ### Option C: Manual DAG Assembly
+ * 1. foreman_init_project → creates project folder + private GitHub repo
+ * 2. foreman_list_roles → see available agent roles
+ * 3. foreman_create_dag → manually define nodes + edges
+ * 4. foreman_execute_dag → start it
+ */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import * as z from 'zod/v3';
+import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-// Configuration
+// ── Configuration ──────────────────────────────────────────────
 const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3000';
 const FOREMAN_AUTH_TOKEN = process.env.FOREMAN_AUTH_TOKEN || '';
 
@@ -13,7 +48,7 @@ if (!FOREMAN_AUTH_TOKEN) {
   process.exit(1);
 }
 
-// Helper function to call Bridge API
+// ── Bridge HTTP Client ─────────────────────────────────────────
 async function callBridge(path: string, options: RequestInit = {}): Promise<any> {
   const url = `${BRIDGE_URL}${path}`;
   const response = await fetch(url, {
@@ -30,45 +65,95 @@ async function callBridge(path: string, options: RequestInit = {}): Promise<any>
     throw new Error(`Bridge API error (${response.status}): ${error}`);
   }
 
-  const json = await response.json();
-  return json;
+  return response.json();
 }
 
-// Helper to make tool results from text
 function textResult(text: string): CallToolResult {
   return { content: [{ type: 'text', text }] };
 }
 
-// Helper to make error results
 function errorResult(error: unknown): CallToolResult {
   const msg = error instanceof Error ? error.message : String(error);
   return { content: [{ type: 'text', text: `❌ Error: ${msg}` }] };
 }
 
-// Create MCP server
+// ── MCP Server Setup ───────────────────────────────────────────
 const server = new McpServer(
+  { name: 'foreman-mcp-server', version: '0.2.0' },
+  { capabilities: {} }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 1: Initialize Project
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_init_project',
   {
-    name: 'foreman-mcp-server',
-    version: '0.1.0',
+    description:
+      `Create a new project workspace on the Foreman server with an optional private GitHub repository. ` +
+      `This is typically the FIRST step before creating tasks or DAGs. ` +
+      `Creates a directory at /home/foreman/projects/<name>, initializes git, creates a README, ` +
+      `and optionally creates a private GitHub repo and pushes the initial commit. ` +
+      `After this, use the returned project name as the "project" parameter in other tools.`,
+    inputSchema: {
+      name: z.string().describe('Project name (used as directory name and optionally GitHub repo name). Use kebab-case, e.g. "dgx-spark-training"'),
+      description: z.string().optional().describe('Project description for README and GitHub repo'),
+      github_repo: z.union([z.string(), z.boolean()]).optional().default(true)
+        .describe('GitHub repo name (string) or true to use project name, or false to skip GitHub repo creation'),
+      github_org: z.string().optional().describe('GitHub organization to create the repo under (omit for personal account)'),
+    },
   },
-  {
-    capabilities: {},
+  async (params): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/projects/init', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+
+      let text = `✅ Project initialized!\n\n`;
+      text += `📁 Directory: ${result.project_dir}\n`;
+      text += `📋 Name: ${result.project_name}\n`;
+      text += `🐙 GitHub: ${result.github_repo}\n\n`;
+      text += `Use this as the "project" parameter in subsequent commands:\n`;
+      text += `  project: "${result.project_name}"`;
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
   }
 );
 
-// Tool 1: Create Task
+// ════════════════════════════════════════════════════════════════
+// TOOL 2: Create Task
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
   'foreman_create_task',
   {
-    description: 'Create a new coding task for an AI agent. The agent will execute the task in a sandboxed environment with file scope enforcement.',
+    description:
+      `Create and immediately start a coding task for an AI agent on the Foreman server. ` +
+      `The agent (Claude Code by default) runs in the project directory with file scope enforcement. ` +
+      `The task auto-starts — you do NOT need to start it separately. ` +
+      `After creating, poll foreman_task_status every 15-30 seconds until status is "completed" or "failed". ` +
+      `IMPORTANT: The "project" param should be the project name (not a full path) — it maps to /home/foreman/projects/<project>. ` +
+      `If you haven't initialized the project yet, use foreman_init_project first.`,
     inputSchema: {
-      project: z.string().describe('Project directory path'),
-      title: z.string().describe('Task title/summary'),
-      briefing: z.string().describe('Detailed task description and requirements'),
-      allowed_files: z.array(z.string()).describe('Glob patterns for files the agent can modify (e.g., ["src/api/**", "tests/**"])'),
-      blocked_files: z.array(z.string()).optional().describe('Glob patterns for files the agent must not touch (takes precedence over allowed_files)'),
-      agent: z.enum(['claude-code', 'augment']).optional().default('claude-code').describe('Which AI agent to use'),
-      verification: z.string().optional().describe('How to verify the task was completed correctly'),
+      project: z.string().describe('Project name (e.g. "dgx-spark-training"). Maps to /home/foreman/projects/<name> on the server.'),
+      title: z.string().describe('Short task title (1 line summary)'),
+      briefing: z.string().describe(
+        'Detailed task description. Write this like a thorough spec: what to build, acceptance criteria, ' +
+        'technical requirements, file structure. The agent has NO prior context — everything it needs to know must be here.'
+      ),
+      allowed_files: z.array(z.string()).optional().default(['**/*']).describe(
+        'Glob patterns for files the agent CAN modify (e.g. ["src/**", "tests/**"]). Defaults to all files.'
+      ),
+      blocked_files: z.array(z.string()).optional().describe(
+        'Glob patterns for files the agent must NOT touch (takes precedence over allowed_files).'
+      ),
+      role: z.string().optional().describe(
+        'Agent role ID from foreman_list_roles (e.g. "implementer", "backend-architect"). ' +
+        'Determines the agent\'s system prompt and expertise. Defaults to none (general purpose).'
+      ),
+      agent: z.enum(['claude-code', 'augment']).optional().default('claude-code').describe('AI agent runtime (claude-code recommended)'),
     },
   },
   async (params): Promise<CallToolResult> => {
@@ -77,18 +162,17 @@ server.registerTool(
         method: 'POST',
         body: JSON.stringify(params),
       });
-
-      // Bridge returns the task object directly (or may wrap in { task })
       const task = result.task || result;
 
       return textResult(
-        `✅ Task created successfully!\n\n` +
-        `Task ID: ${task.id}\n` +
-        `Status: ${task.status}\n` +
-        `Agent: ${task.agent}\n` +
-        `Project: ${task.project}\n` +
-        `\nThe agent is now working on: "${task.title}"\n\n` +
-        `Use foreman_task_status to check progress.`
+        `✅ Task created and started!\n\n` +
+        `🆔 Task ID: ${task.id}\n` +
+        `📋 Title: ${task.title}\n` +
+        `🤖 Agent: ${task.agent}\n` +
+        `📁 Project: ${task.project}\n` +
+        `📊 Status: ${task.status}\n\n` +
+        `⏳ The agent is now working. Poll foreman_task_status with task_id="${task.id}" every 15-30 seconds to check progress.\n` +
+        `When status is "completed", use foreman_get_diff to review changes.`
       );
     } catch (error) {
       return errorResult(error);
@@ -96,13 +180,20 @@ server.registerTool(
   }
 );
 
-// Tool 2: Get Task Status
+// ════════════════════════════════════════════════════════════════
+// TOOL 3: Task Status
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
   'foreman_task_status',
   {
-    description: 'Get the current status and output of a task',
+    description:
+      `Check the current status of a task. Returns status, agent output, and timing info. ` +
+      `Possible statuses: "pending" (queued), "running" (agent working), "completed" (success), ` +
+      `"failed" (error), "reviewing" (needs approval). ` +
+      `Poll this every 15-30 seconds while status is "running". ` +
+      `When "completed": use foreman_get_diff to see changes. When "failed": check the error output.`,
     inputSchema: {
-      task_id: z.string().describe('The task ID returned from foreman_create_task'),
+      task_id: z.string().describe('Task ID returned from foreman_create_task'),
     },
   },
   async (params): Promise<CallToolResult> => {
@@ -110,114 +201,33 @@ server.registerTool(
       const result = await callBridge(`/tasks/${params.task_id}`);
       const task = result.task || result;
 
-      let statusText = `📊 Task Status: ${task.status}\n\n`;
-      statusText += `Title: ${task.title}\n`;
-      statusText += `Agent: ${task.agent}\n`;
-      statusText += `Project: ${task.project}\n`;
-      statusText += `Created: ${task.created_at}\n`;
-
-      if (task.started_at) statusText += `Started: ${task.started_at}\n`;
-      if (task.completed_at) statusText += `Completed: ${task.completed_at}\n`;
+      let text = `📊 Task: ${task.title}\n`;
+      text += `Status: ${task.status}\n`;
+      text += `Agent: ${task.agent}\n`;
+      text += `Project: ${task.project}\n`;
+      text += `Created: ${task.created_at}\n`;
+      if (task.started_at) text += `Started: ${task.started_at}\n`;
+      if (task.completed_at) text += `Completed: ${task.completed_at}\n`;
 
       if (task.output && task.output.length > 0) {
-        const outputLines = task.output.slice(-50); // last 50 lines
-        statusText += `\n📝 Agent Output (last ${outputLines.length} lines):\n${outputLines.join('\n')}\n`;
+        const lines = task.output.slice(-30);
+        text += `\n── Agent Output (last ${lines.length} lines) ──\n`;
+        text += lines.join('\n');
+        text += '\n';
       }
 
-      if (task.error || task.agent_output) {
-        statusText += `\n❌ Error: ${task.error || task.agent_output}\n`;
+      if (task.agent_output && task.status === 'failed') {
+        text += `\n❌ Error: ${task.agent_output}\n`;
       }
 
-      if (task.status === 'completed') {
-        statusText += `\n✅ Task completed! Use foreman_get_diff to see changes.`;
+      // Guidance
+      if (task.status === 'running') {
+        text += `\n⏳ Still running. Poll again in 15-30 seconds.`;
+      } else if (task.status === 'completed') {
+        text += `\n✅ Done! Use foreman_get_diff to review the changes.`;
+      } else if (task.status === 'failed') {
+        text += `\n❌ Failed. Review the error above. You can retry with foreman_create_task or foreman_reject with feedback.`;
       }
-
-      return textResult(statusText);
-    } catch (error) {
-      return errorResult(error);
-    }
-  }
-);
-
-// Tool 3: Get Diff
-server.registerTool(
-  'foreman_get_diff',
-  {
-    description: 'Get the git diff showing all changes made by the agent',
-    inputSchema: {
-      task_id: z.string().describe('The task ID'),
-    },
-  },
-  async (params): Promise<CallToolResult> => {
-    try {
-      const result = await callBridge(`/tasks/${params.task_id}/diff`);
-
-      if (!result.diff || result.diff.trim() === '') {
-        return textResult('📝 No changes detected. The agent may still be working or the task produced no file modifications.');
-      }
-
-      return textResult(
-        `📝 Git Diff for Task ${params.task_id}:\n\n\`\`\`diff\n${result.diff}\n\`\`\`\n\n` +
-        `Use foreman_approve to commit these changes or foreman_reject to discard them.`
-      );
-    } catch (error) {
-      return errorResult(error);
-    }
-  }
-);
-
-// Tool 4: Approve Task
-server.registerTool(
-  'foreman_approve',
-  {
-    description: 'Approve and commit the task changes to git',
-    inputSchema: {
-      task_id: z.string().describe('The task ID'),
-      push: z.boolean().optional().default(false).describe('Whether to push to remote after committing'),
-    },
-  },
-  async (params): Promise<CallToolResult> => {
-    try {
-      const result = await callBridge(`/tasks/${params.task_id}/approve`, {
-        method: 'POST',
-        body: JSON.stringify({ push: params.push }),
-      });
-
-      return textResult(
-        `✅ Task approved!\n\n` +
-        `${result.message || 'Changes committed.'}\n` +
-        `${params.push ? '📤 Pushed to remote' : '💾 Committed locally'}`
-      );
-    } catch (error) {
-      return errorResult(error);
-    }
-  }
-);
-
-// Tool 5: Reject Task
-server.registerTool(
-  'foreman_reject',
-  {
-    description: 'Reject the task and optionally provide feedback for retry',
-    inputSchema: {
-      task_id: z.string().describe('The task ID'),
-      feedback: z.string().optional().describe('Feedback explaining why the task was rejected'),
-      retry: z.boolean().optional().default(false).describe('Whether to automatically retry the task with the feedback'),
-    },
-  },
-  async (params): Promise<CallToolResult> => {
-    try {
-      await callBridge(`/tasks/${params.task_id}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({
-          feedback: params.feedback,
-          retry: params.retry,
-        }),
-      });
-
-      let text = `❌ Task rejected.\n`;
-      if (params.feedback) text += `\nFeedback: ${params.feedback}\n`;
-      if (params.retry) text += `\n🔄 Task will be retried with feedback.`;
 
       return textResult(text);
     } catch (error) {
@@ -226,19 +236,207 @@ server.registerTool(
   }
 );
 
-// Tool 6: Create DAG
+// ════════════════════════════════════════════════════════════════
+// TOOL 4: Get Diff
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_get_diff',
+  {
+    description:
+      `Get the git diff of changes made by an agent for a completed task. ` +
+      `Only useful after a task reaches "completed" status. ` +
+      `After reviewing, use foreman_approve to accept or foreman_reject to discard.`,
+    inputSchema: {
+      task_id: z.string().describe('Task ID'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge(`/tasks/${params.task_id}/diff`);
+      if (!result.diff || result.diff.trim() === '') {
+        return textResult('📝 No file changes detected.');
+      }
+      return textResult(
+        `📝 Changes for task ${params.task_id}:\n\n\`\`\`diff\n${result.diff}\n\`\`\`\n\n` +
+        `Use foreman_approve to accept or foreman_reject to discard.`
+      );
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 5: Approve Task
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_approve',
+  {
+    description: 'Approve and commit the changes from a completed task.',
+    inputSchema: {
+      task_id: z.string().describe('Task ID'),
+      push: z.boolean().optional().default(true).describe('Push to remote GitHub after committing (default: true)'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge(`/tasks/${params.task_id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ push: params.push }),
+      });
+      return textResult(`✅ Approved! ${result.message || 'Changes committed.'}`);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 6: Reject Task
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_reject',
+  {
+    description: 'Reject a completed task\'s changes and optionally retry with feedback.',
+    inputSchema: {
+      task_id: z.string().describe('Task ID'),
+      feedback: z.string().optional().describe('What was wrong and what to do differently'),
+      retry: z.boolean().optional().default(false).describe('Automatically retry the task with the feedback incorporated'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    try {
+      await callBridge(`/tasks/${params.task_id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ feedback: params.feedback, retry: params.retry }),
+      });
+      let text = `❌ Task rejected.`;
+      if (params.feedback) text += `\nFeedback: ${params.feedback}`;
+      if (params.retry) text += `\n🔄 Retrying with feedback.`;
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 7: Delete Task
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_delete_task',
+  {
+    description: 'Delete a task (and kill its running agent process if active). Use foreman_delete_all_tasks to clear everything.',
+    inputSchema: {
+      task_id: z.string().describe('Task ID to delete'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    try {
+      await callBridge(`/tasks/${params.task_id}`, { method: 'DELETE' });
+      return textResult(`🗑️ Task ${params.task_id} deleted.`);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 8: Delete All Tasks
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_delete_all_tasks',
+  {
+    description: 'Delete ALL tasks and kill any running agent processes. Use with caution.',
+    inputSchema: {},
+  },
+  async (): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/tasks', { method: 'DELETE' });
+      return textResult(`🗑️ Deleted ${result.deleted} tasks.`);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 9: Plan DAG
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_plan',
+  {
+    description:
+      `Use the AI Planner to decompose a high-level project brief into a DAG (Directed Acyclic Graph) workflow. ` +
+      `The planner assigns specialised agent roles to each task node and sets up dependencies. ` +
+      `By default auto_create=true, which immediately creates the DAG. ` +
+      `After creation, call foreman_execute_dag to start execution. ` +
+      `IMPORTANT: The planner calls an LLM and may take 20-60 seconds to respond. Be patient.`,
+    inputSchema: {
+      project: z.string().describe('Project name (must already exist via foreman_init_project)'),
+      brief: z.string().describe(
+        'High-level description of what needs to be built. Be thorough: include goals, tech stack, ' +
+        'architecture, constraints, acceptance criteria. The planner will decompose this into parallel/sequential tasks.'
+      ),
+      context: z.string().optional().describe('Additional context such as existing codebase info, API specs, or architecture diagrams'),
+      auto_create: z.boolean().optional().default(true).describe('true = create the DAG immediately, false = just return the plan for review'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/dags/plan', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+
+      if (result.dag) {
+        let text = `✅ DAG planned and created!\n\n`;
+        text += `🆔 DAG ID: ${result.dag.id}\n`;
+        text += `📋 Name: ${result.dag.name}\n`;
+        text += `📊 Nodes: ${result.dag.nodes.length} | Edges: ${result.dag.edges.length}\n\n`;
+        text += `── Nodes ──\n`;
+        for (const node of result.dag.nodes) {
+          const emoji = node.type === 'gate' ? '🚧' : '🔧';
+          text += `${emoji} ${node.title} [${node.type}] → role: ${node.role || 'none'}\n`;
+          if (node.briefing) text += `   ${node.briefing.slice(0, 100)}${node.briefing.length > 100 ? '...' : ''}\n`;
+        }
+        text += `\n🚀 Next: Call foreman_execute_dag with dag_id="${result.dag.id}" to start execution.`;
+        text += `\n📊 Monitor: Call foreman_dag_status with dag_id="${result.dag.id}" to track progress (poll every 15-30s).`;
+        return textResult(text);
+      } else {
+        return textResult(
+          `📋 Planned DAG (not yet created):\n\n` +
+          `\`\`\`json\n${JSON.stringify(result.planned, null, 2)}\n\`\`\`\n\n` +
+          `Use foreman_create_dag with this data to create it, or foreman_plan with auto_create=true.`
+        );
+      }
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 10: Create DAG (manual)
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
   'foreman_create_dag',
   {
-    description: 'Create a new DAG workflow for multi-agent orchestration',
+    description:
+      `Manually create a DAG workflow. For most cases, use foreman_plan instead — it generates the DAG automatically. ` +
+      `Use this only when you need precise control over node definitions and dependencies. ` +
+      `After creating, call foreman_execute_dag to start it.`,
     inputSchema: {
-      name: z.string().describe('Name of the DAG workflow'),
-      description: z.string().describe('Description of the workflow'),
-      project: z.string().describe('Project directory path'),
-      created_by: z.enum(['planner', 'manual']).default('manual').describe('Who created this DAG'),
-      approval_mode: z.enum(['per_task', 'end_only', 'gate_configured']).default('per_task').describe('How tasks are approved'),
-      nodes: z.array(z.any()).describe('Array of DAG nodes (tasks, gates, etc.)'),
-      edges: z.array(z.any()).describe('Array of DAG edges (dependencies)'),
+      name: z.string().describe('DAG name'),
+      description: z.string().describe('What this DAG accomplishes'),
+      project: z.string().describe('Project name'),
+      created_by: z.enum(['planner', 'manual']).default('manual'),
+      approval_mode: z.enum(['per_task', 'end_only', 'gate_configured']).default('gate_configured')
+        .describe('"per_task" = approve every node, "end_only" = approve at the end, "gate_configured" = approve only at gate nodes'),
+      nodes: z.array(z.any()).describe(
+        'Array of node objects: { id, title, type ("task"|"gate"), briefing, role, allowed_files?, blocked_files?, gate_condition? }'
+      ),
+      edges: z.array(z.any()).describe('Array of edge objects: { from: "node_id", to: "node_id" }'),
     },
   },
   async (params): Promise<CallToolResult> => {
@@ -247,15 +445,12 @@ server.registerTool(
         method: 'POST',
         body: JSON.stringify(params),
       });
-
       return textResult(
-        `✅ DAG created successfully!\n\n` +
-        `DAG ID: ${dag.id}\n` +
-        `Name: ${dag.name}\n` +
-        `Status: ${dag.status}\n` +
-        `Nodes: ${dag.nodes?.length || 0}\n` +
-        `Edges: ${dag.edges?.length || 0}\n\n` +
-        `Use foreman_execute_dag to start it, or foreman_dag_status to check progress.`
+        `✅ DAG created!\n\n` +
+        `🆔 DAG ID: ${dag.id}\n` +
+        `📋 Name: ${dag.name}\n` +
+        `📊 Nodes: ${dag.nodes?.length || 0} | Edges: ${dag.edges?.length || 0}\n\n` +
+        `🚀 Call foreman_execute_dag with dag_id="${dag.id}" to start execution.`
       );
     } catch (error) {
       return errorResult(error);
@@ -263,26 +458,30 @@ server.registerTool(
   }
 );
 
-// Tool 7: Execute DAG
+// ════════════════════════════════════════════════════════════════
+// TOOL 11: Execute DAG
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
   'foreman_execute_dag',
   {
-    description: 'Start execution of a DAG workflow',
+    description:
+      `Start executing a DAG workflow. Tasks run in dependency order — parallel when possible. ` +
+      `Gate nodes will pause execution until you call foreman_approve_gate. ` +
+      `After starting, poll foreman_dag_status every 15-30 seconds to monitor progress. ` +
+      `Overall DAG status goes: "created" → "running" → "completed" (or "failed").`,
     inputSchema: {
-      dag_id: z.string().describe('The DAG ID to execute'),
+      dag_id: z.string().describe('DAG ID from foreman_plan or foreman_create_dag'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
-      const dag = await callBridge(`/dags/${params.dag_id}/execute`, {
-        method: 'POST',
-      });
-
+      const dag = await callBridge(`/dags/${params.dag_id}/execute`, { method: 'POST' });
       return textResult(
         `🚀 DAG execution started!\n\n` +
-        `DAG ID: ${dag.id}\n` +
-        `Status: ${dag.status}\n\n` +
-        `Use foreman_dag_status to check progress.`
+        `🆔 DAG ID: ${dag.id}\n` +
+        `📊 Status: ${dag.status}\n\n` +
+        `⏳ Poll foreman_dag_status with dag_id="${dag.id}" every 15-30 seconds to track progress.\n` +
+        `🚧 If a gate node is reached, you'll see status "waiting_approval" — call foreman_approve_gate to continue.`
       );
     } catch (error) {
       return errorResult(error);
@@ -290,110 +489,205 @@ server.registerTool(
   }
 );
 
-// Tool 8: Get DAG Status
+// ════════════════════════════════════════════════════════════════
+// TOOL 12: DAG Status
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
   'foreman_dag_status',
   {
-    description: 'Get the current status of a DAG workflow and its nodes',
+    description:
+      `Get detailed status of a DAG and all its nodes. ` +
+      `Node statuses: "pending" (waiting for deps), "running" (agent active), "completed", "failed", "waiting_approval" (gate). ` +
+      `DAG statuses: "created" (not started), "running", "completed", "failed". ` +
+      `Poll every 15-30s while status is "running". ` +
+      `When a gate node shows "waiting_approval", call foreman_approve_gate to resume execution.`,
     inputSchema: {
-      dag_id: z.string().describe('The DAG ID'),
+      dag_id: z.string().describe('DAG ID'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
       const dag = await callBridge(`/dags/${params.dag_id}`);
 
-      let statusText = `📊 DAG Status: ${dag.status}\n\n`;
-      statusText += `Name: ${dag.name}\n`;
-      statusText += `Project: ${dag.project}\n`;
-      statusText += `Created: ${dag.created_at}\n`;
-      if (dag.started_at) statusText += `Started: ${dag.started_at}\n`;
-      if (dag.completed_at) statusText += `Completed: ${dag.completed_at}\n`;
-      statusText += `\nNodes:\n`;
+      let text = `📊 DAG: ${dag.name}\n`;
+      text += `Status: ${dag.status}\n`;
+      text += `Project: ${dag.project}\n`;
+      if (dag.started_at) text += `Started: ${dag.started_at}\n`;
+      if (dag.completed_at) text += `Completed: ${dag.completed_at}\n`;
+
+      const stats = {
+        total: (dag.nodes || []).length,
+        completed: (dag.nodes || []).filter((n: any) => n.status === 'completed').length,
+        running: (dag.nodes || []).filter((n: any) => n.status === 'running').length,
+        failed: (dag.nodes || []).filter((n: any) => n.status === 'failed').length,
+        waiting: (dag.nodes || []).filter((n: any) => n.status === 'waiting_approval').length,
+        pending: (dag.nodes || []).filter((n: any) => n.status === 'pending').length,
+      };
+      text += `Progress: ${stats.completed}/${stats.total} completed`;
+      if (stats.running) text += ` | ${stats.running} running`;
+      if (stats.waiting) text += ` | ${stats.waiting} awaiting approval`;
+      if (stats.failed) text += ` | ${stats.failed} failed`;
+      text += '\n\n── Nodes ──\n';
 
       for (const node of (dag.nodes || [])) {
-        const icon = node.status === 'completed' ? '✅' : node.status === 'running' ? '🔄' : node.status === 'failed' ? '❌' : '⏳';
-        statusText += `${icon} [${node.status}] ${node.title} (${node.type}${node.role ? `, role: ${node.role}` : ''})\n`;
-        if (node.error) statusText += `   Error: ${node.error}\n`;
+        const icon =
+          node.status === 'completed' ? '✅' :
+          node.status === 'running' ? '⚡' :
+          node.status === 'failed' ? '❌' :
+          node.status === 'waiting_approval' ? '🚧' :
+          '⏳';
+        text += `${icon} ${node.title} [${node.type}] — ${node.status}`;
+        if (node.role) text += ` (${node.role})`;
+        text += '\n';
+        if (node.error) text += `   Error: ${node.error}\n`;
       }
 
-      return textResult(statusText);
+      // Guidance
+      if (dag.status === 'running') {
+        if (stats.waiting > 0) {
+          const gates = (dag.nodes || []).filter((n: any) => n.status === 'waiting_approval');
+          text += `\n🚧 Gate(s) waiting for approval:\n`;
+          for (const g of gates) {
+            text += `  → foreman_approve_gate(dag_id="${dag.id}", node_id="${g.id}")\n`;
+          }
+        } else {
+          text += `\n⏳ Still running. Poll again in 15-30 seconds.`;
+        }
+      } else if (dag.status === 'completed') {
+        text += `\n✅ All nodes completed! Review results in the Foreman dashboard.`;
+      } else if (dag.status === 'failed') {
+        text += `\n❌ DAG failed. Check node errors above.`;
+      }
+
+      return textResult(text);
     } catch (error) {
       return errorResult(error);
     }
   }
 );
 
-// Tool 9: Plan DAG
+// ════════════════════════════════════════════════════════════════
+// TOOL 13: Approve Gate
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
-  'foreman_plan',
+  'foreman_approve_gate',
   {
-    description: 'Ask the Planner agent to decompose a high-level brief into an executable DAG workflow with specialised agent roles.',
+    description:
+      `Approve a gate node in a running DAG to continue execution. ` +
+      `Gate nodes act as checkpoints — they pause the DAG until explicitly approved. ` +
+      `Use foreman_dag_status to find nodes with status "waiting_approval".`,
     inputSchema: {
-      project: z.string().describe('Project directory path'),
-      brief: z.string().describe('High-level description of what needs to be built'),
-      context: z.string().optional().describe('Additional context (e.g. architecture notes, constraints)'),
-      auto_create: z.boolean().optional().default(true).describe('Whether to auto-create the DAG (true) or just return the plan (false)'),
+      dag_id: z.string().describe('DAG ID'),
+      node_id: z.string().describe('Gate node ID (from foreman_dag_status)'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
-      const result = await callBridge('/dags/plan', {
-        method: 'POST',
-        body: JSON.stringify({
-          project: params.project,
-          brief: params.brief,
-          context: params.context,
-          auto_create: params.auto_create,
-        }),
-      });
-
-      if (result.dag) {
-        let text = `✅ Planner generated and created a DAG!\n\n`;
-        text += `DAG ID: ${result.dag.id}\n`;
-        text += `Name: ${result.dag.name}\n`;
-        text += `Nodes: ${result.dag.nodes.length}\n`;
-        text += `Edges: ${result.dag.edges.length}\n\n`;
-        text += `Nodes:\n`;
-        for (const node of result.dag.nodes) {
-          text += `- [${node.type}] ${node.title} (role: ${node.role || 'none'})\n`;
-        }
-        text += `\nUse foreman_execute_dag with DAG ID "${result.dag.id}" to start execution.`;
-        return { content: [{ type: 'text', text }] };
-      } else {
-        return {
-          content: [{
-            type: 'text',
-            text: `📋 Planned DAG (not yet created):\n\n\`\`\`json\n${JSON.stringify(result.planned, null, 2)}\n\`\`\`\n\nUse foreman_create_dag with this JSON to create it.`,
-          }],
-        };
-      }
-    } catch (error: any) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Planning failed: ${error.message}`,
-        }],
-      };
+      await callBridge(`/dags/${params.dag_id}/nodes/${params.node_id}/approve`, { method: 'POST' });
+      return textResult(`✅ Gate "${params.node_id}" approved. DAG execution continues.`);
+    } catch (error) {
+      return errorResult(error);
     }
   }
 );
 
-// Tool 10: List Agent Roles
+// ════════════════════════════════════════════════════════════════
+// TOOL 14: Delete DAG
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_delete_dag',
+  {
+    description: 'Delete a DAG workflow.',
+    inputSchema: {
+      dag_id: z.string().describe('DAG ID to delete'),
+    },
+  },
+  async (params): Promise<CallToolResult> => {
+    try {
+      await callBridge(`/dags/${params.dag_id}`, { method: 'DELETE' });
+      return textResult(`🗑️ DAG ${params.dag_id} deleted.`);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 15: List Tasks
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_list_tasks',
+  {
+    description: 'List all tasks in the system with their current status.',
+    inputSchema: {},
+  },
+  async (): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/tasks');
+      const tasks = result.tasks || [];
+      if (tasks.length === 0) return textResult('📋 No tasks.');
+
+      let text = `📋 Tasks (${tasks.length}):\n\n`;
+      for (const t of tasks) {
+        const icon = t.status === 'completed' ? '✅' : t.status === 'running' ? '⚡' : t.status === 'failed' ? '❌' : '⏳';
+        text += `${icon} [${t.status}] ${t.title || 'Untitled'} — ID: ${t.id}\n`;
+        text += `   Agent: ${t.agent} | Project: ${t.project}\n\n`;
+      }
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 16: List DAGs
+// ════════════════════════════════════════════════════════════════
+server.registerTool(
+  'foreman_list_dags',
+  {
+    description: 'List all DAG workflows with their current status.',
+    inputSchema: {},
+  },
+  async (): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/dags');
+      const dags = result.dags || [];
+      if (dags.length === 0) return textResult('📋 No DAGs.');
+
+      let text = `📋 DAGs (${dags.length}):\n\n`;
+      for (const d of dags) {
+        const icon = d.status === 'completed' ? '✅' : d.status === 'running' ? '⚡' : d.status === 'failed' ? '❌' : '⏳';
+        text += `${icon} [${d.status}] ${d.name} — ID: ${d.id}\n`;
+        text += `   Nodes: ${d.nodes?.length || 0} | Project: ${d.project}\n\n`;
+      }
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 17: List Roles
+// ════════════════════════════════════════════════════════════════
 server.registerTool(
   'foreman_list_roles',
   {
-    description: 'List all available agent roles with their capabilities and descriptions',
+    description:
+      `List all available agent roles. Roles define the expertise and system prompt for each agent. ` +
+      `Use role IDs when creating tasks or planning DAGs. ` +
+      `Available roles include: planner, backend-architect, frontend-architect, security-auditor, implementer, reviewer.`,
     inputSchema: {},
   },
   async (): Promise<CallToolResult> => {
     try {
       const result = await callBridge('/roles');
-      let text = '🎭 Available Agent Roles:\n\n';
+      let text = '🎭 Agent Roles:\n\n';
       for (const role of (result.roles || [])) {
-        text += `**${role.name}** (\`${role.id}\`)\n`;
+        text += `**${role.name}** (ID: \`${role.id}\`)\n`;
         text += `  ${role.description}\n`;
-        text += `  Capabilities: ${role.capabilities?.join(', ') || 'N/A'}\n`;
+        if (role.capabilities?.length) text += `  Capabilities: ${role.capabilities.join(', ')}\n`;
         text += `  Model: ${role.model}\n\n`;
       }
       return textResult(text);
@@ -403,73 +697,11 @@ server.registerTool(
   }
 );
 
-// Tool 11: List Tasks
-server.registerTool(
-  'foreman_list_tasks',
-  {
-    description: 'List all tasks in the system',
-    inputSchema: {},
-  },
-  async (): Promise<CallToolResult> => {
-    try {
-      const result = await callBridge('/tasks');
-      const tasks = result.tasks || result || [];
-
-      if (!Array.isArray(tasks) || tasks.length === 0) {
-        return textResult('📋 No tasks found.');
-      }
-
-      let text = `📋 Tasks (${tasks.length}):\n\n`;
-      for (const t of tasks) {
-        const icon = t.status === 'completed' ? '✅' : t.status === 'running' ? '🔄' : t.status === 'failed' ? '❌' : '⏳';
-        text += `${icon} **${t.title || 'Untitled'}** (ID: ${t.id})\n`;
-        text += `   Status: ${t.status} | Agent: ${t.agent} | Project: ${t.project}\n`;
-        if (t.created_at) text += `   Created: ${t.created_at}\n`;
-        text += '\n';
-      }
-      return textResult(text);
-    } catch (error) {
-      return errorResult(error);
-    }
-  }
-);
-
-// Tool 12: List DAGs
-server.registerTool(
-  'foreman_list_dags',
-  {
-    description: 'List all DAG workflows',
-    inputSchema: {},
-  },
-  async (): Promise<CallToolResult> => {
-    try {
-      const result = await callBridge('/dags');
-      const dags = result.dags || result || [];
-
-      if (!Array.isArray(dags) || dags.length === 0) {
-        return textResult('📋 No DAGs found.');
-      }
-
-      let text = `📋 DAGs (${dags.length}):\n\n`;
-      for (const d of dags) {
-        const icon = d.status === 'completed' ? '✅' : d.status === 'running' ? '🔄' : d.status === 'failed' ? '❌' : '⏳';
-        text += `${icon} **${d.name}** (ID: ${d.id})\n`;
-        text += `   Status: ${d.status} | Nodes: ${d.nodes?.length || 0} | Project: ${d.project}\n`;
-        if (d.created_at) text += `   Created: ${d.created_at}\n`;
-        text += '\n';
-      }
-      return textResult(text);
-    } catch (error) {
-      return errorResult(error);
-    }
-  }
-);
-
-// Start stdio transport (standard for MCP servers)
+// ── Start Transport ────────────────────────────────────────────
 const transport = new StdioServerTransport();
 server.connect(transport).then(() => {
-  console.error('🚀 Foreman MCP Server started');
-  console.error(`📡 Connected to Bridge at ${BRIDGE_URL}`);
-  console.error(`✅ Ready to receive commands from Claude.ai`);
+  console.error('🚀 Foreman MCP Server v0.2.0 started');
+  console.error(`📡 Bridge: ${BRIDGE_URL}`);
+  console.error(`🔧 Tools: 17 registered`);
 });
 
