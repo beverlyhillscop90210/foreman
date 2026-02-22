@@ -88,9 +88,12 @@ Important rules:
 - Each task node MUST have a "role" field set to one of the available role IDs.
 - Gate nodes do NOT need a role.
 - Ensure the graph is a valid DAG (no cycles).
-- Make task briefings self-contained and actionable.
+- Make task briefings concise but actionable (MAX 3-4 sentences per briefing). Do NOT write essays.
+- Keep node titles short (max 6 words).
 - Use parallel execution where tasks are independent.
 - Place "gate" nodes with "gate_condition": "manual" before critical phases (e.g. before implementation, before deployment).
+- Aim for 8-15 nodes total. Do NOT create more than 20 nodes.
+- Return ONLY the JSON object, no explanation text before or after.
 - The project is: "${input.project}"`;
 
   const userMessage = input.context
@@ -112,7 +115,7 @@ Important rules:
         { role: 'user', content: userMessage },
       ],
       temperature: 0.3,
-      max_tokens: 4096,
+      max_tokens: 16384,
     }),
   });
 
@@ -123,9 +126,14 @@ Important rules:
 
   const data = await response.json() as any;
   const content = data.choices?.[0]?.message?.content;
+  const finishReason = data.choices?.[0]?.finish_reason;
 
   if (!content) {
     throw new Error('Planner LLM returned empty response');
+  }
+
+  if (finishReason === 'length') {
+    console.warn('⚠️ Planner: LLM output was truncated (finish_reason=length). Attempting JSON repair...');
   }
 
   // Extract JSON from the response (may be wrapped in ```json blocks)
@@ -134,11 +142,54 @@ Important rules:
     throw new Error(`Planner LLM did not return valid JSON. Response:\n${content.slice(0, 500)}`);
   }
 
+  let rawJson = jsonMatch[1].trim();
+
+  // Attempt to repair truncated JSON by closing open brackets/braces
+  function repairTruncatedJson(json: string): string {
+    // Remove any trailing incomplete string or value
+    // Strip trailing comma, incomplete key-value, etc.
+    let repaired = json.replace(/,\s*$/, '');
+    // If we end mid-string, close the string
+    const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
+    if (quoteCount % 2 !== 0) {
+      repaired += '"';
+    }
+    // Count open vs close brackets/braces
+    let braces = 0, brackets = 0;
+    let inString = false;
+    for (let i = 0; i < repaired.length; i++) {
+      const ch = repaired[i];
+      if (ch === '"' && (i === 0 || repaired[i - 1] !== '\\')) {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === '{') braces++;
+      else if (ch === '}') braces--;
+      else if (ch === '[') brackets++;
+      else if (ch === ']') brackets--;
+    }
+    // Remove trailing comma before closing
+    repaired = repaired.replace(/,\s*$/, '');
+    // Close any open brackets/braces
+    for (let i = 0; i < brackets; i++) repaired += ']';
+    for (let i = 0; i < braces; i++) repaired += '}';
+    return repaired;
+  }
+
   let dagJson: any;
   try {
-    dagJson = JSON.parse(jsonMatch[1]);
+    dagJson = JSON.parse(rawJson);
   } catch (err) {
-    throw new Error(`Failed to parse Planner JSON: ${err}\nRaw:\n${jsonMatch[1].slice(0, 500)}`);
+    // Try to repair truncated JSON
+    console.warn(`⚠️ Planner: Initial JSON parse failed, attempting repair...`);
+    try {
+      const repaired = repairTruncatedJson(rawJson);
+      dagJson = JSON.parse(repaired);
+      console.log('✅ Planner: JSON repair succeeded');
+    } catch (repairErr) {
+      throw new Error(`Failed to parse Planner JSON (repair also failed): ${err}\nRaw (first 800 chars):\n${rawJson.slice(0, 800)}\n...\nRaw (last 300 chars):\n${rawJson.slice(-300)}`);
+    }
   }
 
   // Validate basic structure
