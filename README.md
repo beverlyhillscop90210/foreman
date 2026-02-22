@@ -1,59 +1,161 @@
 # 🏗️ Foreman
 
-**AI Agent Supervisor System** – Enforce task scope on coding agents, review diffs before commit, and monitor from anywhere.
+**DAG-based Agentic Orchestration System** — Decompose complex software tasks into multi-agent workflows, monitor execution in real-time, and approve results from a live dashboard.
 
 ## The Problem
 
-AI coding agents are powerful but reckless. They hallucinate, modify files outside their scope, break working systems, and require constant babysitting.
+AI coding agents are powerful but difficult to coordinate. A single agent working on a complex feature will lose context, make mistakes across unrelated files, and require constant babysitting. Running multiple agents manually is even worse — no dependency ordering, no scope isolation, no central visibility.
 
 ## The Solution
 
-**Foreman** acts as a Lead Engineer / Vorarbeiter that sits between you and your AI agents:
+**Foreman** acts as a Lead Engineer (*Vorarbeiter*) that sits between you and your AI agents:
 
-- ✅ **Enforces task scope** with file whitelists
-- ✅ **Reviews every diff** before commit with AI-powered analysis
-- ✅ **Blocks out-of-scope changes** via git hooks
-- ✅ **Mobile dashboard** for approving changes from anywhere
-- ✅ **MCP Server** for seamless agent integration
+- **DAG Orchestration** — Break complex briefs into multi-step workflows with dependency ordering and parallel execution
+- **Specialised Agent Roles** — Planner, Backend Architect, Frontend Architect, Security Auditor, Implementer, Reviewer — each with its own scope and system prompt
+- **Scope Enforcement** — Each agent node gets a file whitelist/blocklist so it can only touch what it should
+- **Live Dashboard** — React-based UI with real-time DAG graph, node terminal output, metrics, and approval controls
+- **MCP Integration** — Use Foreman directly from Claude Desktop or any MCP-compatible client
+- **WebSocket Streaming** — Live terminal output, status updates, and progress metrics pushed to the dashboard
 
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Local Mac   │     │  Cloudflare      │     │  Mobile/Web     │
-│              │────▶│  Worker API      │────▶│  Dashboard      │
-│  - MCP Server│     │                  │     │  (PWA)          │
-│  - Git Hooks │     │  - Event store   │     │  - Live tasks   │
-│  - CLI       │     │  - WebSocket     │     │  - Diff review  │
-│  - .foreman  │     │  - Auth          │     │  - Approve/Reject│
-└──────────────┘     └──────────────────┘     └─────────────────┘
+┌─────────────────────┐     ┌───────────────────────┐     ┌───────────────────────┐
+│  Claude Desktop     │     │  Foreman Bridge       │     │  Foreman Dashboard    │
+│  (MCP Client)       │────▶│  (Node.js / Hono)     │◀────│  (React / Vite)       │
+│                     │     │                       │     │                       │
+│  - foreman_plan     │     │  - DAG Executor       │     │  - DAG Flow Graph     │
+│  - foreman_create_  │     │  - Task Runner        │     │  - Live Terminal      │
+│    dag              │     │  - Agent Roles        │     │  - Metrics Panel      │
+│  - foreman_execute_ │     │  - WebSocket Server   │     │  - Approval Controls  │
+│    dag              │     │  - Knowledge Base     │     │  - Kanban Board       │
+│  - foreman_dag_     │     │  - Planner (LLM)      │     │  - Knowledge Base     │
+│    status           │     │                       │     │                       │
+└─────────────────────┘     └───────────────────────┘     └───────────────────────┘
+         MCP (stdio)              REST + WebSocket              Static Build
 ```
 
 ## Quick Start
 
+### 1. Clone & Install
+
 ```bash
-# Install
-pnpm install -g @foreman/cli
-
-# Initialize in your project
-cd your-project
-foreman init
-
-# Set task scope
-foreman scope "Fix the KMZ generator"
-# Interactive file selector appears
-
-# Your AI agent works within scope
-# Foreman blocks out-of-scope changes
-# You approve diffs from your phone
+git clone https://github.com/beverlyhillscop90210/foreman.git
+cd foreman
+pnpm install
 ```
+
+### 2. Configure Environment
+
+Create a `.env` file in `packages/bridge/`:
+
+```bash
+# Required
+FOREMAN_AUTH_TOKEN="your-secret-token"      # Auth token for API + MCP
+ANTHROPIC_API_KEY="sk-ant-..."              # For Claude Code agent execution
+OPENROUTER_API_KEY="sk-or-..."              # For Planner LLM (Claude via OpenRouter)
+
+# Optional
+PORT=3000                                   # Bridge server port (default: 3000)
+DAG_FILE="/path/to/dags.json"               # DAG persistence file
+TASKS_FILE="/path/to/tasks.json"            # Tasks persistence file
+```
+
+### 3. Build & Run
+
+```bash
+# Build everything
+pnpm build
+
+# Start the bridge server
+cd packages/bridge
+node dist/index.js
+
+# In another terminal — start dashboard dev server
+cd packages/dashboard
+pnpm dev
+```
+
+### 4. Connect MCP (Claude Desktop)
+
+See [packages/mcp-server/README.md](packages/mcp-server/README.md) for setup instructions.
 
 ## Packages
 
-- **`@foreman/core`** - CLI + Git hooks for local enforcement
-- **`@foreman/mcp-server`** - MCP server for agent integration
-- **`@foreman/api`** - Cloudflare Worker for cloud sync
-- **`@foreman/dashboard`** - Mobile-first PWA for remote monitoring
+| Package | Description |
+|---------|-------------|
+| **`@foreman/bridge`** | Backend server (Hono) — DAG executor, task runner, agent roles, REST API, WebSocket |
+| **`@foreman/dashboard`** | React + Vite frontend — DAG graph, metrics, terminal, kanban, knowledge base |
+| **`@foreman/mcp-server`** | MCP server for Claude Desktop integration — stdio transport |
+| **`@foreman/core`** | CLI + Git hooks for local scope enforcement |
+
+## MCP Tools
+
+The MCP server exposes these tools to Claude Desktop:
+
+| Tool | Description |
+|------|-------------|
+| `foreman_plan` | AI-powered brief decomposition into executable DAG workflows |
+| `foreman_create_dag` | Create a DAG manually with nodes and edges |
+| `foreman_execute_dag` | Start executing a DAG |
+| `foreman_dag_status` | Get DAG status and node progress |
+| `foreman_create_task` | Create a standalone coding task |
+| `foreman_task_status` | Get task status and output |
+| `foreman_get_diff` | Get git diff from a completed task |
+| `foreman_approve` | Approve and commit task changes |
+| `foreman_reject` | Reject task with feedback |
+| `foreman_list_roles` | List available agent roles |
+
+## Agent Roles
+
+| Role | Icon | Description |
+|------|------|-------------|
+| **Planner** | 🧠 | Decomposes briefs into DAGs with task ordering and parallelism |
+| **Backend Architect** | 🖥️ | Designs APIs, schemas, system architecture |
+| **Frontend Architect** | 🎨 | Designs UI components, state management |
+| **Security Auditor** | 🛡️ | Reviews code for vulnerabilities, auth flows |
+| **Implementer** | ⌨️ | Writes production code following architect specs |
+| **Reviewer** | 👁️ | Reviews code for correctness, style, performance |
+
+## API Reference
+
+The Bridge exposes a REST API at `http://localhost:3000`:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/tasks` | List tasks |
+| `POST` | `/tasks` | Create & start task |
+| `GET` | `/tasks/:id` | Get task details |
+| `GET` | `/dags` | List DAGs |
+| `POST` | `/dags` | Create DAG |
+| `POST` | `/dags/plan` | AI-powered DAG generation from brief |
+| `GET` | `/dags/:id` | Get DAG details |
+| `POST` | `/dags/:id/execute` | Execute DAG |
+| `POST` | `/dags/:id/nodes/:nodeId/approve` | Approve gate node |
+| `DELETE` | `/dags/:id` | Delete DAG |
+| `GET` | `/roles` | List agent roles |
+| `GET` | `/knowledge` | List knowledge docs |
+| `POST` | `/knowledge` | Create knowledge doc |
+| `GET` | `/config` | List config entries |
+| `WS` | `/ws` | WebSocket for real-time events |
+
+All endpoints (except `/health`) require `Authorization: Bearer <token>` header.
+
+## Dashboard
+
+The dashboard provides:
+
+- **DAG Flow Graph** — Interactive visualization of workflow nodes with color-coded edges by agent role, animated active paths, and live terminal output inside running nodes
+- **Metrics Panel** — Progress tracking, runtime, node status breakdown, role breakdown, recent activity
+- **Resizable Layout** — Draggable divider between graph and metrics panels
+- **Kanban Board** — Task/card management
+- **Knowledge Base** — Documentation storage and search
+- **Settings** — Configuration management
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment instructions (DigitalOcean, Caddy reverse proxy, systemd).
 
 ## Development
 
@@ -64,11 +166,14 @@ pnpm install
 # Build all packages
 pnpm build
 
-# Run in development mode
-pnpm dev
+# Dashboard dev server (hot reload)
+cd packages/dashboard && pnpm dev
 
-# Run tests
-pnpm test
+# Bridge dev server
+cd packages/bridge && pnpm build && node dist/index.js
+
+# MCP server dev
+cd packages/mcp-server && pnpm dev
 ```
 
 ## License

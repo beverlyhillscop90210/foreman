@@ -5,9 +5,9 @@ echo "🚀 Foreman Bridge - Droplet Deployment Script"
 echo "=============================================="
 
 # Configuration
-DROPLET_IP="207.154.246.112"
-SSH_KEY="$HOME/.ssh/id_ed25519"
-ANTHROPIC_API_KEY="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"
+DROPLET_IP="${DROPLET_IP:?Set DROPLET_IP env var}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY env var}"
 FOREMAN_AUTH_TOKEN=$(openssl rand -hex 32)
 
 echo ""

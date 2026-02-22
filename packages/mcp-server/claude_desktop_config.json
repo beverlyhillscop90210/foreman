@@ -3,11 +3,11 @@
     "foreman": {
       "command": "node",
       "args": [
-        "/Users/peterschings/Documents/DevOps/_beverlyhillscop/foreman/packages/mcp-server/dist/index.js"
+        "/absolute/path/to/foreman/packages/mcp-server/dist/index.js"
       ],
       "env": {
-        "BRIDGE_URL": "http://207.154.246.112:3000",
-        "FOREMAN_AUTH_TOKEN": "1ba489d45352894d3b6b74121a498a826cf8252490119d29127add4d0c00c4e3"
+        "BRIDGE_URL": "https://your-bridge-server.example.com",
+        "FOREMAN_AUTH_TOKEN": "your-auth-token-here"
       }
     }
   }

@@ -12,6 +12,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
   CONFIG_DIR="$APPDATA/Claude"
   CONFIG_FILE="$CONFIG_DIR/claude_desktop_config.json"
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  CONFIG_DIR="$HOME/.config/claude"
+  CONFIG_FILE="$CONFIG_DIR/claude_desktop_config.json"
 else
   echo "❌ Unsupported OS: $OSTYPE"
   exit 1
@@ -40,6 +43,23 @@ if [ ! -f "$MCP_SERVER_PATH" ]; then
   exit 1
 fi
 
+# Prompt for configuration
+echo "📋 Configure your Foreman Bridge connection"
+echo ""
+
+read -p "   Bridge URL (e.g. https://foreman.example.com or http://localhost:3000): " BRIDGE_URL
+if [ -z "$BRIDGE_URL" ]; then
+  BRIDGE_URL="http://localhost:3000"
+  echo "   Using default: $BRIDGE_URL"
+fi
+
+read -p "   Auth Token (FOREMAN_AUTH_TOKEN): " AUTH_TOKEN
+if [ -z "$AUTH_TOKEN" ]; then
+  echo "❌ Auth token is required."
+  exit 1
+fi
+echo ""
+
 # Backup existing config if it exists
 if [ -f "$CONFIG_FILE" ]; then
   BACKUP_FILE="$CONFIG_FILE.backup.$(date +%Y%m%d_%H%M%S)"
@@ -60,8 +80,8 @@ cat > "$CONFIG_FILE" << EOF
         "$MCP_SERVER_PATH"
       ],
       "env": {
-        "BRIDGE_URL": "http://207.154.246.112:3000",
-        "FOREMAN_AUTH_TOKEN": "1ba489d45352894d3b6b74121a498a826cf8252490119d29127add4d0c00c4e3"
+        "BRIDGE_URL": "$BRIDGE_URL",
+        "FOREMAN_AUTH_TOKEN": "$AUTH_TOKEN"
       }
     }
   }

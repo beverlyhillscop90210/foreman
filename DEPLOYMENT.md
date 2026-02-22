@@ -8,9 +8,9 @@ The Foreman Bridge has been successfully deployed to DigitalOcean.
 
 ## 🌐 Server Information
 
-- **Droplet IP**: `207.154.246.112`
-- **Domain**: `foreman.beverlyhillscop.io` (DNS setup required)
-- **OS**: Ubuntu 24.04.3 LTS
+- **Droplet IP**: `<your-server-ip>`
+- **Domain**: `foreman.yourdomain.com` (requires DNS A record)
+- **OS**: Ubuntu 24.04 LTS
 - **Region**: Frankfurt
 - **RAM**: 2GB
 
@@ -20,12 +20,12 @@ The Foreman Bridge has been successfully deployed to DigitalOcean.
 
 ### API Authentication Token
 ```
-FOREMAN_AUTH_TOKEN=1ba489d45352894d3b6b74121a498a826cf8252490119d29127add4d0c00c4e3
+FOREMAN_AUTH_TOKEN=<your-generated-auth-token>
 ```
 
 ### Anthropic API Key (configured)
 ```
-ANTHROPIC_API_KEY=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
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
 ```
 
 ---
@@ -64,14 +64,14 @@ ANTHROPIC_API_KEY=sk-ant-api03-0JI9ee5xvZmnVkr3rCqShY3FU4oel1girkgvLKiAtQ-eqNMIx
 
 ### Health Check (HTTP - Working Now)
 ```bash
-curl http://207.154.246.112:3000/health
+curl http://<your-server-ip>:3000/health
 # Response: {"status":"ok","service":"foreman-bridge","version":"0.1.0"}
 ```
 
 ### Create Task (Authenticated)
 ```bash
-curl -X POST http://207.154.246.112:3000/tasks \
-  -H "Authorization: Bearer 1ba489d45352894d3b6b74121a498a826cf8252490119d29127add4d0c00c4e3" \
+curl -X POST http://<your-server-ip>:3000/tasks \
+  -H "Authorization: Bearer <your-auth-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "project": "test-project",
@@ -93,13 +93,13 @@ curl -X POST http://207.154.246.112:3000/tasks \
 
 | Type | Host | Value | TTL |
 |------|------|-------|-----|
-| A | foreman | 207.154.246.112 | 300 |
+| A | foreman | <your-server-ip> | 300 |
 
 Or if your DNS provider requires full domain:
 
 | Type | Host | Value | TTL |
 |------|------|-------|-----|
-| A | foreman.beverlyhillscop.io | 207.154.246.112 | 300 |
+| A | foreman.yourdomain.com | <your-server-ip> | 300 |
 
 ### After DNS Propagation
 
@@ -110,7 +110,7 @@ Once DNS is set up (1-5 minutes), Caddy will automatically:
 
 Test with:
 ```bash
-curl https://foreman.beverlyhillscop.io/health
+curl https://foreman.yourdomain.com/health
 ```
 
 ---
@@ -135,20 +135,20 @@ curl https://foreman.beverlyhillscop.io/health
 
 ### Check Service Status
 ```bash
-ssh root@207.154.246.112 "systemctl status foreman-bridge"
-ssh root@207.154.246.112 "systemctl status caddy"
+ssh root@<your-server-ip> "systemctl status foreman-bridge"
+ssh root@<your-server-ip> "systemctl status caddy"
 ```
 
 ### View Logs
 ```bash
-ssh root@207.154.246.112 "journalctl -u foreman-bridge -f"
-ssh root@207.154.246.112 "journalctl -u caddy -f"
+ssh root@<your-server-ip> "journalctl -u foreman-bridge -f"
+ssh root@<your-server-ip> "journalctl -u caddy -f"
 ```
 
 ### Restart Services
 ```bash
-ssh root@207.154.246.112 "systemctl restart foreman-bridge"
-ssh root@207.154.246.112 "systemctl restart caddy"
+ssh root@<your-server-ip> "systemctl restart foreman-bridge"
+ssh root@<your-server-ip> "systemctl restart caddy"
 ```
 
 ### Update Code
@@ -156,12 +156,12 @@ ssh root@207.154.246.112 "systemctl restart caddy"
 # From local machine
 rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'dist' \
   -e "ssh -i ~/.ssh/id_ed25519" \
-  /Users/peterschings/Documents/DevOps/_beverlyhillscop/foreman/ \
-  foreman@207.154.246.112:/home/foreman/repos/foreman/
+  ./foreman/ \
+  foreman@<your-server-ip>:/home/foreman/repos/foreman/
 
 # Then rebuild and restart
-ssh foreman@207.154.246.112 "cd /home/foreman/repos/foreman && pnpm --filter @foreman/bridge build"
-ssh root@207.154.246.112 "systemctl restart foreman-bridge"
+ssh foreman@<your-server-ip> "cd /home/foreman/repos/foreman && pnpm --filter @foreman/bridge build"
+ssh root@<your-server-ip> "systemctl restart foreman-bridge"
 ```
 
 ---
@@ -191,7 +191,7 @@ ssh root@207.154.246.112 "systemctl restart foreman-bridge"
 ## 📞 Support
 
 - **Droplet Console**: Available in DigitalOcean dashboard
-- **SSH Access**: `ssh root@207.154.246.112` or `ssh foreman@207.154.246.112`
+- **SSH Access**: `ssh root@<your-server-ip>` or `ssh foreman@<your-server-ip>`
 - **Logs**: `journalctl -u foreman-bridge -f`
 
 ---

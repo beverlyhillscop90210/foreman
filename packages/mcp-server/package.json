@@ -1,14 +1,38 @@
 {
   "name": "@foreman/mcp-server",
   "version": "0.1.0",
-  "description": "MCP server for Foreman Bridge - exposes tools for Claude.ai integration",
+  "description": "MCP server for Foreman Bridge — orchestrate AI coding agents from Claude Desktop",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "foreman-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai-agents",
+    "orchestration",
+    "dag",
+    "foreman"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/beverlyhillscop90210/foreman.git",
+    "directory": "packages/mcp-server"
+  },
+  "author": "Peter Schings",
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "setup": "bash setup-claude-desktop.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
