@@ -302,34 +302,78 @@ server.registerTool(
 server.registerTool(
   'foreman_plan',
   {
-    description: 'Ask the Planner agent to generate a DAG workflow from a high-level brief',
+    description: 'Ask the Planner agent to decompose a high-level brief into an executable DAG workflow with specialised agent roles.',
     inputSchema: {
       project: z.string().describe('Project directory path'),
       brief: z.string().describe('High-level description of what needs to be built'),
+      context: z.string().optional().describe('Additional context (e.g. architecture notes, constraints)'),
+      auto_create: z.boolean().optional().default(true).describe('Whether to auto-create the DAG (true) or just return the plan (false)'),
     },
   },
   async (params): Promise<CallToolResult> => {
-    // In a real implementation, this would call an LLM directly or via Bridge
-    // to generate the DAG JSON, then create it.
-    // For now, we just create a placeholder task for the planner.
-    const task = await callBridge('/tasks', {
-      method: 'POST',
-      body: JSON.stringify({
-        project: params.project,
-        title: 'Plan DAG Workflow',
-        briefing: `Generate a DAG workflow for the following brief:\n\n${params.brief}\n\nOutput the DAG as JSON.`,
-        allowed_files: [],
-        agent: 'claude-code',
-        role: 'planner'
-      }),
-    });
+    try {
+      const result = await callBridge('/dags/plan', {
+        method: 'POST',
+        body: JSON.stringify({
+          project: params.project,
+          brief: params.brief,
+          context: params.context,
+          auto_create: params.auto_create,
+        }),
+      });
 
-    return {
-      content: [{
-        type: 'text',
-        text: `✅ Planner task created!\n\nTask ID: ${task.id}\n\nThe planner is now generating the DAG. Use foreman_task_status to check progress and get the JSON output.`,
-      }],
-    };
+      if (result.dag) {
+        let text = `✅ Planner generated and created a DAG!\n\n`;
+        text += `DAG ID: ${result.dag.id}\n`;
+        text += `Name: ${result.dag.name}\n`;
+        text += `Nodes: ${result.dag.nodes.length}\n`;
+        text += `Edges: ${result.dag.edges.length}\n\n`;
+        text += `Nodes:\n`;
+        for (const node of result.dag.nodes) {
+          text += `- [${node.type}] ${node.title} (role: ${node.role || 'none'})\n`;
+        }
+        text += `\nUse foreman_execute_dag with DAG ID "${result.dag.id}" to start execution.`;
+        return { content: [{ type: 'text', text }] };
+      } else {
+        return {
+          content: [{
+            type: 'text',
+            text: `📋 Planned DAG (not yet created):\n\n\`\`\`json\n${JSON.stringify(result.planned, null, 2)}\n\`\`\`\n\nUse foreman_create_dag with this JSON to create it.`,
+          }],
+        };
+      }
+    } catch (error: any) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Planning failed: ${error.message}`,
+        }],
+      };
+    }
+  }
+);
+
+// Tool 10: List Agent Roles
+server.registerTool(
+  'foreman_list_roles',
+  {
+    description: 'List all available agent roles with their capabilities and descriptions',
+    inputSchema: {},
+  },
+  async (): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge('/roles');
+      let text = '🎭 Available Agent Roles:\n\n';
+      for (const role of result.roles) {
+        text += `**${role.name}** (\`${role.id}\`)\n`;
+        text += `${role.description}\n`;
+        text += `Capabilities: ${role.capabilities.join(', ')}\n`;
+        text += `Model: ${role.model}\n\n`;
+      }
+      return { content: [{ type: 'text', text }] };
+    } catch (error: any) {
+      return { content: [{ type: 'text', text: `❌ Failed to list roles: ${error.message}` }] };
+    }
   }
 );
 

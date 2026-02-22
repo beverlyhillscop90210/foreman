@@ -4,6 +4,7 @@ import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { platform } from 'os';
 import type { Task, TaskStatus } from './types.js';
+import { getRoleSystemPrompt, getRole } from './agent-roles.js';
 
 /**
  * TaskRunner manages task execution and emits events
@@ -13,6 +14,53 @@ export class TaskRunner extends EventEmitter {
   private taskTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private taskProcesses: Map<string, any> = new Map();
   private readonly TASK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+  /** Optional callback to load knowledge context for a task */
+  public knowledgeLoader?: (query: string) => Promise<string>;
+
+  /**
+   * Build a role-enriched prompt for the task.
+   * Prepends the role system prompt and any relevant knowledge.
+   */
+  private async buildTaskPrompt(task: Task): Promise<string> {
+    const parts: string[] = [];
+
+    // Inject role system prompt
+    const roleId = (task as any).role;
+    if (roleId) {
+      const sysPrompt = getRoleSystemPrompt(roleId);
+      if (sysPrompt) {
+        parts.push(`## Role Instructions\n${sysPrompt}`);
+      }
+      const role = getRole(roleId);
+      if (role) {
+        this.emit('task:output', { taskId: task.id, line: `Agent role: ${role.name} (${role.id})`, stream: 'system' });
+      }
+    }
+
+    // Load relevant knowledge
+    if (this.knowledgeLoader) {
+      try {
+        const searchQuery = task.briefing || task.description || task.title || '';
+        const knowledge = await this.knowledgeLoader(searchQuery);
+        if (knowledge) {
+          parts.push(`## Project Knowledge\n${knowledge}`);
+        }
+      } catch (err: any) {
+        this.emit('task:output', { taskId: task.id, line: `Knowledge load failed: ${err.message}`, stream: 'system' });
+      }
+    }
+
+    // The actual task briefing
+    const briefing = task.briefing || task.description || task.title || '';
+    parts.push(`## Task\n${briefing}`);
+
+    // File scope
+    const allowed = task.allowed_files?.length ? task.allowed_files.join(', ') : '**/*';
+    const blocked = task.blocked_files?.length ? task.blocked_files.join(', ') : 'None';
+    parts.push(`## File Scope\nAllowed: ${allowed}\nBlocked: ${blocked}`);
+
+    return parts.join('\n\n');
+  }
 
   /**
    * Start a task
@@ -31,15 +79,18 @@ export class TaskRunner extends EventEmitter {
 
     this.emit('task:output', { taskId: task.id, line: `Starting task execution for ${task.title}...`, stream: 'stdout' });
     
+    // Build the enriched prompt (role system prompt + knowledge + briefing)
+    const prompt = await this.buildTaskPrompt(task);
+
     let command = '';
     let args: string[] = [];
 
     if (task.agent === 'claude-code' || task.agent === 'claude') {
       command = 'claude';
-      args = ['-p', '--dangerously-skip-permissions', task.briefing || task.description || task.title || ''];
+      args = ['-p', '--dangerously-skip-permissions', prompt];
     } else if (task.agent === 'augment' || task.agent === 'augment-agent') {
       command = 'augment';
-      args = ['run', task.briefing || task.description || task.title || ''];
+      args = ['run', prompt];
     } else {
       // Default to a simple echo if no agent is specified or recognized
       command = 'echo';

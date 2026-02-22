@@ -48,6 +48,7 @@ export class TaskManager {
     description: string;
     briefing?: string;
     agent?: string;
+    role?: string;
     allowed_files?: string[];
     blocked_files?: string[];
     verification?: string;
@@ -65,6 +66,8 @@ export class TaskManager {
       allowed_files: body.allowed_files || [],
       blocked_files: body.blocked_files || [],
     };
+    // Store role on the task object for TaskRunner prompt building
+    if (body.role) (task as any).role = body.role;
     this.tasks.push(task);
     this.saveTasks();
     console.log(`Created task ${task.id}: ${body.title}`);

@@ -1,8 +1,52 @@
 import { Hono } from 'hono';
 import { DagExecutor } from '../dag-executor.js';
+import { generateDagFromBrief } from '../planner.js';
+import type { KnowledgeService } from '../services/knowledge.js';
 
-export function createDagRoutes(dagExecutor: DagExecutor) {
+export function createDagRoutes(dagExecutor: DagExecutor, knowledgeService?: KnowledgeService) {
   const app = new Hono();
+
+  /**
+   * POST /plan - Use the Planner agent to generate a DAG from a brief
+   * This must be BEFORE /:id routes to avoid matching "plan" as an ID
+   */
+  app.post('/plan', async (c) => {
+    try {
+      const body = await c.req.json();
+      if (!body.project || !body.brief) {
+        return c.json({ error: 'project and brief are required' }, 400);
+      }
+
+      // Optionally load project knowledge as extra context
+      let context = body.context || '';
+      if (knowledgeService && !context) {
+        try {
+          const docs = await knowledgeService.semanticSearch(body.brief, { limit: 3 });
+          if (docs.length > 0) {
+            context = docs.map(d => `### ${d.title}\n${d.content.slice(0, 800)}`).join('\n\n');
+          }
+        } catch { /* no knowledge available, continue without */ }
+      }
+
+      const dagInput = await generateDagFromBrief({
+        project: body.project,
+        brief: body.brief,
+        context,
+      });
+
+      // Auto-create the DAG if requested (default: true)
+      if (body.auto_create !== false) {
+        const dag = dagExecutor.createDag(dagInput);
+        return c.json({ dag, planned: dagInput }, 201);
+      }
+
+      // Just return the planned DAG without creating it
+      return c.json({ planned: dagInput });
+    } catch (error) {
+      console.error('Planner error:', error);
+      return c.json({ error: error instanceof Error ? error.message : 'Planning failed' }, 500);
+    }
+  });
 
   /**
    * GET / - List all DAGs

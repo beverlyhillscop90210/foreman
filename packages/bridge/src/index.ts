@@ -8,8 +8,10 @@ import { WebSocketManager } from './websocket.js';
 import { createKanbanRoutes } from './routes/kanban.js';
 import { createKnowledgeRoutes } from './routes/knowledge.js';
 import { createDagRoutes } from './routes/dags.js';
+import { createRolesRoutes } from './routes/roles.js';
 import { KnowledgeService } from './services/knowledge.js';
 import { DagExecutor } from './dag-executor.js';
+import { generateDagFromBrief } from './planner.js';
 import { configRouter, initConfigService, configService } from './routes/config.js';
 
 /**
@@ -30,6 +32,17 @@ const taskRunner = new TaskRunner();
 const kanbanCoordinator = new KanbanCoordinator();
 const knowledgeService = new KnowledgeService();
 const dagExecutor = new DagExecutor(taskRunner, taskManager);
+
+// Wire knowledge loader into TaskRunner so role-aware prompts include relevant knowledge
+taskRunner.knowledgeLoader = async (query: string): Promise<string> => {
+  try {
+    const results = await knowledgeService.semanticSearch(query, { limit: 3 });
+    if (results.length === 0) return '';
+    return results.map(r => `### ${r.title}\n${r.content.slice(0, 1000)}`).join('\n\n');
+  } catch {
+    return '';
+  }
+};
 
 // Clean up stale tasks left in 'running' state from previous process
 for (const task of taskManager.getTasks()) {
@@ -272,8 +285,12 @@ const knowledgeRouter = createKnowledgeRoutes(knowledgeService);
 app.route('/knowledge', knowledgeRouter);
 
 // Mount DAG routes
-const dagRouter = createDagRoutes(dagExecutor);
+const dagRouter = createDagRoutes(dagExecutor, knowledgeService);
 app.route('/dags', dagRouter);
+
+// Mount Roles routes
+const rolesRouter = createRolesRoutes();
+app.route('/roles', rolesRouter);
 
 // Wire DAG events to WebSocket
 dagExecutor.on('dag:created', (dag) => wsManager.broadcast({ type: 'dag:created', dag }));

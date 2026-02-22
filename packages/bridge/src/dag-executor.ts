@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import type { Task } from './types.js';
 import { TaskRunner } from './task-runner.js';
 import { TaskManager } from './task-manager.js';
+import { AGENT_ROLES, getRoleFileScopes } from './agent-roles.js';
 
 // ── DAG Types ──────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ export interface DagNode {
   title: string;
   briefing?: string;
   agent?: string;
+  role?: string;           // Agent role ID (from agent-roles registry)
   status: DagNodeStatus;
   taskId?: string;         // linked Task ID once spawned
   project?: string;
@@ -27,6 +29,7 @@ export interface DagNode {
   started_at?: string;
   completed_at?: string;
   output?: string[];
+  artifacts?: Record<string, any>;  // Structured outputs passed to downstream nodes
   // Gate-specific
   gate_condition?: 'all_pass' | 'any_pass' | 'manual';
 }
@@ -128,19 +131,25 @@ export class DagExecutor extends EventEmitter {
     const id = randomBytes(6).toString('base64url');
     const now = new Date().toISOString();
 
-    // Normalize nodes
-    const nodes: DagNode[] = input.nodes.map((n, i) => ({
-      id: n.id || `node-${i}`,
-      type: n.type || 'task',
-      title: n.title || `Node ${i}`,
-      briefing: n.briefing,
-      agent: n.agent || 'claude-code',
-      status: 'pending' as DagNodeStatus,
-      project: n.project || input.project,
-      allowed_files: n.allowed_files,
-      blocked_files: n.blocked_files,
-      gate_condition: n.gate_condition,
-    }));
+    // Normalize nodes — apply role defaults for file scopes when not explicitly set
+    const nodes: DagNode[] = input.nodes.map((n, i) => {
+      const roleId = n.role;
+      const roleScopes = roleId ? getRoleFileScopes(roleId) : null;
+      return {
+        id: n.id || `node-${i}`,
+        type: n.type || 'task',
+        title: n.title || `Node ${i}`,
+        briefing: n.briefing,
+        agent: n.agent || 'claude-code',
+        role: roleId,
+        status: 'pending' as DagNodeStatus,
+        project: n.project || input.project,
+        allowed_files: n.allowed_files || roleScopes?.allowed,
+        blocked_files: n.blocked_files || roleScopes?.blocked,
+        artifacts: n.artifacts,
+        gate_condition: n.gate_condition,
+      };
+    });
 
     // Validate edges reference valid node IDs
     const nodeIds = new Set(nodes.map(n => n.id));
@@ -288,13 +297,21 @@ export class DagExecutor extends EventEmitter {
     dag.updated_at = new Date().toISOString();
     this.saveDags();
 
+    // Collect artifacts from upstream completed nodes
+    const upstreamArtifacts = this.collectUpstreamArtifacts(dag, node);
+    let enrichedBriefing = node.briefing || node.title;
+    if (Object.keys(upstreamArtifacts).length > 0) {
+      enrichedBriefing += `\n\n## Upstream Artifacts\n${JSON.stringify(upstreamArtifacts, null, 2)}`;
+    }
+
     try {
       const task = await this.taskManager.createTask({
         title: node.title,
-        description: node.briefing || node.title,
+        description: enrichedBriefing,
         project: node.project || dag.project,
         agent: (node.agent as any) || 'claude-code',
-        briefing: node.briefing || node.title,
+        briefing: enrichedBriefing,
+        role: node.role,
       });
 
       node.taskId = task.id;
@@ -311,7 +328,7 @@ export class DagExecutor extends EventEmitter {
       });
 
       this.emit('dag:node:started', { dag, node });
-      console.log(`  ▶ Node "${node.title}" started (task ${task.id})`);
+      console.log(`  ▶ Node "${node.title}" started (task ${task.id}, role: ${node.role || 'none'})`);
     } catch (err: any) {
       node.status = 'failed';
       node.error = err.message;
@@ -399,6 +416,19 @@ export class DagExecutor extends EventEmitter {
     if (task?.output) node.output = task.output;
     if (result === 'failed') node.error = task?.agent_output || 'Task failed';
 
+    // Store structured artifacts from task output for downstream nodes
+    if (result === 'completed' && task?.output) {
+      const fullOutput = task.output.join('\n');
+      node.artifacts = { output_summary: fullOutput.slice(0, 4000) };
+      // Try to extract JSON artifacts from output
+      const jsonMatch = fullOutput.match(/```json\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        try {
+          node.artifacts.structured = JSON.parse(jsonMatch[1]);
+        } catch { /* not valid JSON, skip */ }
+      }
+    }
+
     dag.updated_at = new Date().toISOString();
     this.taskToDag.delete(taskId);
     this.saveDags();
@@ -412,8 +442,24 @@ export class DagExecutor extends EventEmitter {
 
   // ── Helpers ────────────────────────────────────────────────
 
-  /**
-   * Compute overall DAG status from node statuses.
+  /**   * Collect artifacts from all completed upstream (predecessor) nodes.
+   */
+  private collectUpstreamArtifacts(dag: Dag, node: DagNode): Record<string, any> {
+    const result: Record<string, any> = {};
+    const predecessors = dag.edges
+      .filter(e => e.to === node.id)
+      .map(e => dag.nodes.find(n => n.id === e.from))
+      .filter(Boolean) as DagNode[];
+
+    for (const pred of predecessors) {
+      if (pred.status === 'completed' && pred.artifacts) {
+        result[pred.id] = { title: pred.title, role: pred.role, ...pred.artifacts };
+      }
+    }
+    return result;
+  }
+
+  /**   * Compute overall DAG status from node statuses.
    */
   private computeDagStatus(dag: Dag): DagStatus {
     const statuses = dag.nodes.map(n => n.status);
