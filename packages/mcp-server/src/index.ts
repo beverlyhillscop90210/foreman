@@ -98,16 +98,19 @@ server.registerTool(
     inputSchema: {
       name: z.string().describe('Project name (used as directory name and optionally GitHub repo name). Use kebab-case, e.g. "dgx-spark-training"'),
       description: z.string().optional().describe('Project description for README and GitHub repo'),
-      github_repo: z.union([z.string(), z.boolean()]).optional().default(true)
-        .describe('GitHub repo name (string) or true to use project name, or false to skip GitHub repo creation'),
+      github_repo: z.string().optional().describe('GitHub repo name, or "true" to use project name, or "false" to skip. Defaults to creating a repo with the project name.'),
       github_org: z.string().optional().describe('GitHub organization to create the repo under (omit for personal account)'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
+      const body: any = { ...params };
+      // Convert string github_repo to boolean/string for bridge
+      if (body.github_repo === 'false') body.github_repo = false;
+      else if (body.github_repo === 'true' || !body.github_repo) body.github_repo = true;
       const result = await callBridge('/projects/init', {
         method: 'POST',
-        body: JSON.stringify(params),
+        body: JSON.stringify(body),
       });
 
       let text = `✅ Project initialized!\n\n`;
@@ -143,24 +146,30 @@ server.registerTool(
         'Detailed task description. Write this like a thorough spec: what to build, acceptance criteria, ' +
         'technical requirements, file structure. The agent has NO prior context — everything it needs to know must be here.'
       ),
-      allowed_files: z.array(z.string()).optional().default(['**/*']).describe(
-        'Glob patterns for files the agent CAN modify (e.g. ["src/**", "tests/**"]). Defaults to all files.'
+      allowed_files: z.string().optional().describe(
+        'Comma-separated glob patterns for files the agent CAN modify (e.g. "src/**,tests/**"). Defaults to all files.'
       ),
-      blocked_files: z.array(z.string()).optional().describe(
-        'Glob patterns for files the agent must NOT touch (takes precedence over allowed_files).'
+      blocked_files: z.string().optional().describe(
+        'Comma-separated glob patterns for files the agent must NOT touch (takes precedence over allowed_files).'
       ),
       role: z.string().optional().describe(
         'Agent role ID from foreman_list_roles (e.g. "implementer", "backend-architect"). ' +
         'Determines the agent\'s system prompt and expertise. Defaults to none (general purpose).'
       ),
-      agent: z.enum(['claude-code', 'augment']).optional().default('claude-code').describe('AI agent runtime (claude-code recommended)'),
+      agent: z.string().optional().describe('AI agent runtime: "claude-code" (default) or "augment"'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
+      const body: any = { ...params };
+      // Convert comma-sep strings to arrays
+      if (body.allowed_files) body.allowed_files = body.allowed_files.split(',').map((s: string) => s.trim());
+      else body.allowed_files = ['**/*'];
+      if (body.blocked_files) body.blocked_files = body.blocked_files.split(',').map((s: string) => s.trim());
+      if (!body.agent) body.agent = 'claude-code';
       const result = await callBridge('/tasks', {
         method: 'POST',
-        body: JSON.stringify(params),
+        body: JSON.stringify(body),
       });
       const task = result.task || result;
 
@@ -275,14 +284,15 @@ server.registerTool(
     description: 'Approve and commit the changes from a completed task.',
     inputSchema: {
       task_id: z.string().describe('Task ID'),
-      push: z.boolean().optional().default(true).describe('Push to remote GitHub after committing (default: true)'),
+      push: z.string().optional().describe('"true" (default) to push to remote GitHub after committing, "false" to skip push'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
+      const push = params.push !== 'false';
       const result = await callBridge(`/tasks/${params.task_id}/approve`, {
         method: 'POST',
-        body: JSON.stringify({ push: params.push }),
+        body: JSON.stringify({ push }),
       });
       return textResult(`✅ Approved! ${result.message || 'Changes committed.'}`);
     } catch (error) {
@@ -430,20 +440,28 @@ server.registerTool(
       name: z.string().describe('DAG name'),
       description: z.string().describe('What this DAG accomplishes'),
       project: z.string().describe('Project name'),
-      created_by: z.enum(['planner', 'manual']).default('manual'),
-      approval_mode: z.enum(['per_task', 'end_only', 'gate_configured']).default('gate_configured')
-        .describe('"per_task" = approve every node, "end_only" = approve at the end, "gate_configured" = approve only at gate nodes'),
-      nodes: z.array(z.any()).describe(
-        'Array of node objects: { id, title, type ("task"|"gate"), briefing, role, allowed_files?, blocked_files?, gate_condition? }'
+      created_by: z.string().optional().describe('"planner" or "manual" (default: "manual")'),
+      approval_mode: z.string().optional().describe('"per_task", "end_only", or "gate_configured" (default). Controls when approval gates trigger.'),
+      nodes: z.string().describe(
+        'JSON string of node array: [{ id, title, type ("task"|"gate"), briefing, role, allowed_files?, blocked_files?, gate_condition? }]'
       ),
-      edges: z.array(z.any()).describe('Array of edge objects: { from: "node_id", to: "node_id" }'),
+      edges: z.string().describe('JSON string of edge array: [{ from: "node_id", to: "node_id" }]'),
     },
   },
   async (params): Promise<CallToolResult> => {
     try {
+      const body: any = {
+        name: params.name,
+        description: params.description,
+        project: params.project,
+        created_by: params.created_by || 'manual',
+        approval_mode: params.approval_mode || 'gate_configured',
+        nodes: JSON.parse(params.nodes),
+        edges: JSON.parse(params.edges),
+      };
       const dag = await callBridge('/dags', {
         method: 'POST',
-        body: JSON.stringify(params),
+        body: JSON.stringify(body),
       });
       return textResult(
         `✅ DAG created!\n\n` +
