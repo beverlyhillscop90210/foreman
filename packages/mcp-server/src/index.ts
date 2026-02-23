@@ -11,28 +11,22 @@
  * tasks, DAGs, and agent processes. This MCP server is the CLI-style interface that Claude Desktop
  * uses to control everything.
  *
- * ## Workflow Options
+ * ## Standard Workflow (ALWAYS use this)
  *
- * ### Option A: Quick Single Task
  * 1. foreman_init_project → creates project folder + private GitHub repo
- * 2. foreman_create_task → creates + auto-starts a task
- * 3. foreman_task_status → poll until status is "completed" or "failed" (poll every 15-30s)
- * 4. foreman_get_diff → see what the agent changed
- * 5. foreman_approve / foreman_reject → accept or reject changes
- *
- * ### Option B: Multi-Agent DAG Workflow (recommended for complex projects)
- * 1. foreman_init_project → creates project folder + private GitHub repo
- * 2. foreman_plan → AI planner decomposes a brief into a DAG of tasks with roles
- * 3. foreman_execute_dag → starts the DAG (runs tasks in dependency order)
- * 4. foreman_dag_status → poll until all nodes are "completed" (poll every 15-30s)
+ * 2. foreman_plan → AI planner decomposes the brief into a DAG of tasks with specialised roles
+ * 3. foreman_execute_dag → starts the DAG (runs tasks in dependency order, parallel where possible)
+ * 4. foreman_dag_status → poll every 15-30s until all nodes are "completed"
  *    - Gate nodes pause execution until you call foreman_approve_gate
- * 5. Review final output in the dashboard or via foreman_task_status per node
+ * 5. Review results in the Foreman dashboard (live DAG visualization with node network)
  *
- * ### Option C: Manual DAG Assembly
- * 1. foreman_init_project → creates project folder + private GitHub repo
- * 2. foreman_list_roles → see available agent roles
- * 3. foreman_create_dag → manually define nodes + edges
- * 4. foreman_execute_dag → start it
+ * IMPORTANT: Always use foreman_plan + foreman_execute_dag, NOT foreman_create_task.
+ * foreman_create_task creates a single isolated task with NO planning, NO node network,
+ * and NO DAG visualization. It should only be used for tiny one-off fixes.
+ *
+ * The DAG workflow gives you: AI-powered task decomposition, parallel execution,
+ * specialised agent roles, dependency management, gate-based approval checkpoints,
+ * and a live node network graph on the dashboard.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -140,12 +134,14 @@ registerTool(
   'foreman_create_task',
   {
     description:
-      `Create and immediately start a coding task for an AI agent on the Foreman server. ` +
-      `The agent (Claude Code by default) runs in the project directory with file scope enforcement. ` +
-      `The task auto-starts — you do NOT need to start it separately. ` +
-      `After creating, poll foreman_task_status every 15-30 seconds until status is "completed" or "failed". ` +
-      `IMPORTANT: The "project" param should be the project name (not a full path) — it maps to /home/foreman/projects/<project>. ` +
-      `If you haven't initialized the project yet, use foreman_init_project first.`,
+      `⚠️ LOW-LEVEL TOOL — For most work, use foreman_plan + foreman_execute_dag instead. ` +
+      `foreman_plan gives you AI-powered task decomposition, parallel execution, specialised roles, ` +
+      `and a live DAG node network on the dashboard. This tool creates a SINGLE isolated task with ` +
+      `no planning, no node network, and no DAG visualization. ` +
+      `Only use this for trivial one-off fixes (e.g. "rename a variable" or "fix a typo"). ` +
+      `The task auto-starts and runs immediately. Poll foreman_task_status every 15-30 seconds. ` +
+      `The "project" param is the project name (not a path) — maps to /home/foreman/projects/<project>. ` +
+      `Use foreman_init_project first if the project doesn't exist yet.`,
     inputSchema: {
       project: z.string().describe('Project name (e.g. "dgx-spark-training"). Maps to /home/foreman/projects/<name> on the server.'),
       title: z.string().describe('Short task title (1 line summary)'),
@@ -386,11 +382,15 @@ registerTool(
   'foreman_plan',
   {
     description:
-      `Use the AI Planner to decompose a high-level project brief into a DAG (Directed Acyclic Graph) workflow. ` +
-      `The planner assigns specialised agent roles to each task node and sets up dependencies. ` +
-      `By default auto_create=true, which immediately creates the DAG. ` +
-      `After creation, call foreman_execute_dag to start execution. ` +
-      `IMPORTANT: The planner calls an LLM and may take 20-60 seconds to respond. Be patient.`,
+      `🚀 PRIMARY TOOL — Use this for ALL coding requests. Decomposes a project brief into a DAG ` +
+      `(Directed Acyclic Graph) with specialised agent roles, dependencies, and parallel execution. ` +
+      `This is what powers the node network visualization on the dashboard. ` +
+      `The planner assigns roles (backend-architect, frontend-architect, implementer, reviewer, etc.) ` +
+      `and structures work into phases with gate checkpoints for quality control. ` +
+      `By default auto_create="true" creates the DAG immediately. ` +
+      `AFTER this returns, IMMEDIATELY call foreman_execute_dag with the returned dag_id to start it. ` +
+      `Then poll foreman_dag_status every 15-30 seconds to monitor progress. ` +
+      `NOTE: The planner calls an LLM — may take 20-60 seconds. Be patient.`,
     inputSchema: {
       project: z.string().describe('Project name (must already exist via foreman_init_project)'),
       brief: z.string().describe(
@@ -423,8 +423,8 @@ registerTool(
           text += `${emoji} ${node.title} [${node.type}] → role: ${node.role || 'none'}\n`;
           if (node.briefing) text += `   ${node.briefing.slice(0, 100)}${node.briefing.length > 100 ? '...' : ''}\n`;
         }
-        text += `\n🚀 Next: Call foreman_execute_dag with dag_id="${result.dag.id}" to start execution.`;
-        text += `\n📊 Monitor: Call foreman_dag_status with dag_id="${result.dag.id}" to track progress (poll every 15-30s).`;
+        text += `\n\n🚀 NEXT STEP: You MUST now call foreman_execute_dag with dag_id="${result.dag.id}" to start execution.`;
+        text += `\nDo NOT wait — call foreman_execute_dag immediately, then poll foreman_dag_status every 15-30s.`;
         return textResult(text);
       } else {
         return textResult(
@@ -496,10 +496,12 @@ registerTool(
   'foreman_execute_dag',
   {
     description:
-      `Start executing a DAG workflow. Tasks run in dependency order — parallel when possible. ` +
+      `Start executing a planned DAG workflow. ALWAYS call this immediately after foreman_plan. ` +
+      `Tasks run in dependency order — parallel when possible. ` +
       `Gate nodes will pause execution until you call foreman_approve_gate. ` +
       `After starting, poll foreman_dag_status every 15-30 seconds to monitor progress. ` +
-      `Overall DAG status goes: "created" → "running" → "completed" (or "failed").`,
+      `Overall DAG status goes: "created" → "running" → "completed" (or "failed"). ` +
+      `The dashboard shows a live node network graph with real-time status updates.`,
     inputSchema: {
       dag_id: z.string().describe('DAG ID from foreman_plan or foreman_create_dag'),
     },
