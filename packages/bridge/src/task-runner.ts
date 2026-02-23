@@ -5,6 +5,9 @@ import { existsSync, mkdirSync } from 'fs';
 import { platform } from 'os';
 import type { Task, TaskStatus } from './types.js';
 import { getRoleSystemPrompt, getRole } from './agent-roles.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('task-runner');
 
 /**
  * TaskRunner manages task execution and emits events
@@ -129,6 +132,7 @@ export class TaskRunner extends EventEmitter {
    */
   startTask(task: Task): void {
     this.runningTasks.set(task.id, task);
+    log.info('Task registered', { taskId: task.id, title: task.title, agent: task.agent });
     this.emit('task:started', task);
   }
 
@@ -139,10 +143,12 @@ export class TaskRunner extends EventEmitter {
     this.startTask(task);
     this.updateTaskStatus(task.id, 'running');
 
+    log.info('Starting task execution', { taskId: task.id, title: task.title, agent: task.agent, project: task.project });
     this.emit('task:output', { taskId: task.id, line: `Starting task execution for ${task.title}...`, stream: 'stdout' });
     
     // Build the enriched prompt (role system prompt + knowledge + briefing)
     const prompt = await this.buildTaskPrompt(task);
+    log.debug('Prompt built', { taskId: task.id, promptLength: prompt.length });
 
     let command = '';
     let args: string[] = [];
@@ -160,6 +166,7 @@ export class TaskRunner extends EventEmitter {
       args = [`Executing custom task: ${task.title || task.description}`];
     }
 
+    log.info('Spawning agent process', { taskId: task.id, command, argsLength: args.length, agent: task.agent });
     this.emit('task:output', { taskId: task.id, line: `Running command: ${command} ${args.join(' ')}`, stream: 'stdout' });
 
     const projectsDir = process.env.PROJECTS_DIR || '/home/foreman/projects';
@@ -179,6 +186,7 @@ export class TaskRunner extends EventEmitter {
     // Claude with --output-format stream-json doesn't need it (print mode works headless).
     let spawnCommand: string;
     let spawnArgs: string[];
+    let useShell = false;
     const isLinuxNonClaude = platform() === 'linux' && !isClaude && (command !== 'echo');
     
     if (isLinuxNonClaude) {
@@ -188,16 +196,24 @@ export class TaskRunner extends EventEmitter {
       // Pass the whole thing as a single shell command
       spawnCommand = `script -qc ${JSON.stringify(fullCmd)} /dev/null`;
       spawnArgs = [];
+      useShell = true;
       this.emit('task:output', { taskId: task.id, line: `Using pseudo-TTY wrapper for headless execution`, stream: 'system' });
     } else {
       spawnCommand = command;
       spawnArgs = args;
+      // IMPORTANT: For Claude CLI, do NOT use shell:true — the prompt contains
+      // special chars (parentheses, newlines, etc.) that get interpreted by /bin/sh.
+      // With shell:false, Node passes each arg directly as argv without shell parsing.
+      useShell = !isClaude;
     }
 
     try {
       const child = spawn(spawnCommand, spawnArgs, {
         cwd: projectDir,
-        shell: true,
+        shell: useShell,
+        // CRITICAL: Use 'ignore' for stdin so Claude CLI doesn't block waiting for input.
+        // stdout/stderr remain as pipes so we can capture output.
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           HOME: process.env.HOME || '/home/foreman',
@@ -206,9 +222,11 @@ export class TaskRunner extends EventEmitter {
 
       // Store the child process so we can kill it on timeout
       this.taskProcesses.set(task.id, child);
+      log.info('Process spawned', { taskId: task.id, pid: child.pid, cwd: projectDir });
 
       // Set a timeout to kill stuck tasks
       const timeout = setTimeout(() => {
+        log.error('Task timed out, killing process', { taskId: task.id, pid: child.pid, timeoutMin: this.TASK_TIMEOUT_MS / 60000 });
         this.emit('task:output', { taskId: task.id, line: `Task timed out after ${this.TASK_TIMEOUT_MS / 60000} minutes. Killing process.`, stream: 'stderr' });
         try { child.kill('SIGKILL'); } catch (_) {}
         this.failTask(task.id, `Task timed out after ${this.TASK_TIMEOUT_MS / 60000} minutes`);
@@ -218,7 +236,21 @@ export class TaskRunner extends EventEmitter {
       // Buffer for partial JSON lines (stream may split across data events)
       let jsonBuffer = '';
 
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+      let lastOutputAt = Date.now();
+
+      // Periodic liveness check — log if no output for 60s
+      const livenessInterval = setInterval(() => {
+        const silentSec = Math.round((Date.now() - lastOutputAt) / 1000);
+        if (silentSec >= 60) {
+          log.warn('Task process silent', { taskId: task.id, pid: child.pid, silentSec, stdoutBytes, stderrBytes });
+        }
+      }, 60_000);
+
       child.stdout.on('data', (data) => {
+        stdoutBytes += data.length;
+        lastOutputAt = Date.now();
         if (isClaude) {
           // Parse NDJSON stream from claude --output-format stream-json
           jsonBuffer += data.toString();
@@ -254,20 +286,26 @@ export class TaskRunner extends EventEmitter {
       });
 
       child.stderr.on('data', (data) => {
+        stderrBytes += data.length;
+        lastOutputAt = Date.now();
         const lines = data.toString().split('\n');
         for (const line of lines) {
           if (line.trim()) {
+            log.debug('stderr', { taskId: task.id, line: line.trim().slice(0, 200) });
             this.emit('task:output', { taskId: task.id, line, stream: 'stderr' });
           }
         }
       });
 
       child.on('close', (code) => {
-        // Clear timeout and process reference
+        // Clear timeout, liveness interval, and process reference
+        clearInterval(livenessInterval);
         const t = this.taskTimeouts.get(task.id);
         if (t) { clearTimeout(t); this.taskTimeouts.delete(task.id); }
         this.taskProcesses.delete(task.id);
 
+        const durationSec = Math.round((Date.now() - (Date.parse(task.started_at || '') || Date.now())) / 1000);
+        log.info('Process exited', { taskId: task.id, pid: child.pid, code, durationSec, stdoutBytes, stderrBytes });
         this.emit('task:output', { taskId: task.id, line: `Process exited with code ${code}`, stream: 'stdout' });
         if (code === 0) {
           this.completeTask(task.id, { status: 'completed' });
@@ -277,11 +315,14 @@ export class TaskRunner extends EventEmitter {
       });
 
       child.on('error', (error) => {
+        clearInterval(livenessInterval);
+        log.error('Process error', { taskId: task.id, pid: child.pid, error: error.message });
         this.emit('task:output', { taskId: task.id, line: `Error: ${error.message}`, stream: 'stderr' });
         this.failTask(task.id, error.message);
       });
 
     } catch (error: any) {
+      log.error('Failed to start process', { taskId: task.id, error: error.message, stack: error.stack });
       this.emit('task:output', { taskId: task.id, line: `Failed to start process: ${error.message}`, stream: 'stderr' });
       this.failTask(task.id, error.message);
     }
@@ -315,8 +356,11 @@ export class TaskRunner extends EventEmitter {
       if (result.diff) {
         task.diff = result.diff;
       }
+      log.info('Task completed', { taskId, title: task.title });
       this.emit('task:completed', task);
       this.runningTasks.delete(taskId);
+    } else {
+      log.warn('completeTask called for unknown task', { taskId });
     }
   }
 
@@ -329,8 +373,11 @@ export class TaskRunner extends EventEmitter {
       task.status = 'failed';
       task.agent_output = error;
       task.completed_at = new Date().toISOString();
+      log.error('Task failed', { taskId, title: task.title, error });
       this.emit('task:failed', task);
       this.runningTasks.delete(taskId);
+    } else {
+      log.warn('failTask called for unknown task', { taskId });
     }
   }
 

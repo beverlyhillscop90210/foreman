@@ -15,6 +15,12 @@ import { generateDagFromBrief } from './planner.js';
 import { configRouter, initConfigService, configService } from './routes/config.js';
 import { HGMemEngine, loadHGMemSessions, saveHGMemSessions } from './hgmem/index.js';
 import { createHGMemRoutes } from './routes/hgmem.js';
+import { DeviceRegistry } from './services/device-registry.js';
+import { TunnelService } from './services/tunnel.js';
+import { createDeviceRoutes } from './routes/devices.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('server');
 
 /**
  * Bridge Backend - Integrates WebSocket, QC Runner, and Kanban Coordinator
@@ -34,6 +40,8 @@ const taskRunner = new TaskRunner();
 const kanbanCoordinator = new KanbanCoordinator();
 const knowledgeService = new KnowledgeService();
 const dagExecutor = new DagExecutor(taskRunner, taskManager);
+const deviceRegistry = new DeviceRegistry();
+const tunnelService = new TunnelService();
 
 // Wire knowledge loader into TaskRunner so role-aware prompts include relevant knowledge
 taskRunner.knowledgeLoader = async (query: string): Promise<string> => {
@@ -49,7 +57,7 @@ taskRunner.knowledgeLoader = async (query: string): Promise<string> => {
 // Clean up stale tasks left in 'running' state from previous process
 for (const task of taskManager.getTasks()) {
   if (task.status === 'running' || task.status === 'pending') {
-    console.log(`Cleaning up stale task: ${task.id} "${task.title}" (was ${task.status})`);
+    log.warn('Cleaning up stale task from previous run', { taskId: task.id, title: task.title, was: task.status });
     taskManager.updateTaskStatus(task.id, 'failed', {
       agent_output: 'Task was interrupted by bridge restart',
       completed_at: new Date().toISOString(),
@@ -59,19 +67,19 @@ for (const task of taskManager.getTasks()) {
 
 // Wire up TaskRunner events to WebSocket
 taskRunner.on('task:started', (task) => {
-  console.log(`Task started: ${task.id}`);
+  log.info('Task started', { taskId: task.id, title: task.title });
   taskManager.updateTaskStatus(task.id, 'running', { started_at: new Date().toISOString() });
   wsManager.broadcast({ type: 'task_event', event: 'started', taskId: task.id, task });
 });
 
 taskRunner.on('task:updated', (task) => {
-  console.log(`Task updated: ${task.id} - ${task.status}`);
+  log.debug('Task updated', { taskId: task.id, status: task.status });
   taskManager.updateTaskStatus(task.id, task.status, task);
   wsManager.broadcast({ type: 'task_event', event: 'updated', taskId: task.id, task });
 });
 
 taskRunner.on('task:completed', (task) => {
-  console.log(`Task completed: ${task.id}`);
+  log.info('Task completed', { taskId: task.id, title: task.title });
   taskManager.updateTaskStatus(task.id, task.status, { ...task, completed_at: new Date().toISOString() });
   wsManager.broadcast({ type: 'task_event', event: 'completed', taskId: task.id, task });
 
@@ -100,7 +108,7 @@ taskRunner.on('task:completed', (task) => {
 });
 
 taskRunner.on('task:failed', (task) => {
-  console.log(`Task failed: ${task.id}`);
+  log.error('Task failed', { taskId: task.id, title: task.title, error: task.agent_output });
   taskManager.updateTaskStatus(task.id, 'failed', { ...task, completed_at: new Date().toISOString() });
   wsManager.broadcast({ type: 'task_event', event: 'failed', taskId: task.id, task });
 });
@@ -130,12 +138,12 @@ taskRunner.on('task:output', (event) => {
 
 // Wire up KanbanCoordinator events to WebSocket
 kanbanCoordinator.on('card:created', (card) => {
-  console.log(`Card created: ${card.id}`);
+  log.debug('Card created', { cardId: card.id });
   wsManager.broadcast({ type: 'card:created', card });
 });
 
 kanbanCoordinator.on('card:moved', (event) => {
-  console.log(`Card moved: ${event.card.id} from ${event.from} to ${event.to}`);
+  log.debug('Card moved', { cardId: event.card.id, from: event.from, to: event.to });
   wsManager.broadcast({ type: 'card:moved', card: event.card, from: event.from, to: event.to });
 });
 
@@ -487,6 +495,17 @@ hgmemEngine.on('session:completed', (s) => wsManager.broadcast({ type: 'hgmem:se
 hgmemEngine.on('session:step:start', (e) => wsManager.broadcast({ type: 'hgmem:step:start', ...e }));
 hgmemEngine.on('session:step:end', (e) => wsManager.broadcast({ type: 'hgmem:step:end', ...e }));
 
+// Mount Device routes
+const deviceRouter = createDeviceRoutes(deviceRegistry, tunnelService);
+app.route('/devices', deviceRouter);
+
+// Wire device events to WebSocket
+deviceRegistry.on('device:created', (d) => wsManager.broadcast({ type: 'device:created', device: d }));
+deviceRegistry.on('device:connected', (d) => wsManager.broadcast({ type: 'device:connected', device: d }));
+deviceRegistry.on('device:online', (d) => wsManager.broadcast({ type: 'device:online', device: d }));
+deviceRegistry.on('device:offline', (d) => wsManager.broadcast({ type: 'device:offline', device: d }));
+deviceRegistry.on('device:deleted', (d) => wsManager.broadcast({ type: 'device:deleted', device: d }));
+
 // Mount Config routes
 app.route('/config', configRouter);
 
@@ -505,6 +524,7 @@ const server = serve({
 // serve() returns a Node.js http.Server
 const wsManager = new WebSocketManager(server as any);
 
+log.info('Foreman Bridge starting', { port: PORT, pid: process.pid, node: process.version });
 console.log(`🏗️  Foreman Bridge running on port ${PORT}`);
 console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);
 

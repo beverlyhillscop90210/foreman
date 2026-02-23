@@ -5,6 +5,9 @@ import type { Task } from './types.js';
 import { TaskRunner } from './task-runner.js';
 import { TaskManager } from './task-manager.js';
 import { AGENT_ROLES, getRoleFileScopes } from './agent-roles.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('dag');
 
 // ── DAG Types ──────────────────────────────────────────────────
 
@@ -20,6 +23,7 @@ export interface DagNode {
   briefing?: string;
   agent?: string;
   role?: string;           // Agent role ID (from agent-roles registry)
+  device?: string;         // Device ID or name — routes task to specific device
   status: DagNodeStatus;
   taskId?: string;         // linked Task ID once spawned
   project?: string;
@@ -74,8 +78,14 @@ export class DagExecutor extends EventEmitter {
     this.loadDags();
 
     // Listen for task completions/failures to advance DAGs
-    this.taskRunner.on('task:completed', (task: Task) => this.onTaskDone(task.id, 'completed'));
-    this.taskRunner.on('task:failed', (task: Task) => this.onTaskDone(task.id, 'failed'));
+    this.taskRunner.on('task:completed', (task: Task) => {
+      log.info('Task completed event received', { taskId: task.id, title: task.title });
+      this.onTaskDone(task.id, 'completed');
+    });
+    this.taskRunner.on('task:failed', (task: Task) => {
+      log.warn('Task failed event received', { taskId: task.id, title: task.title, error: task.agent_output });
+      this.onTaskDone(task.id, 'failed');
+    });
   }
 
   // ── Persistence ────────────────────────────────────────────
@@ -97,10 +107,10 @@ export class DagExecutor extends EventEmitter {
           }
           this.dags.set(dag.id, dag);
         }
-        console.log(`Loaded ${this.dags.size} DAGs from ${DAG_FILE}`);
+        log.info('DAGs loaded from disk', { count: this.dags.size, file: DAG_FILE });
       }
     } catch (e) {
-      console.error('Failed to load DAGs:', e);
+      log.error('Failed to load DAGs', { error: (e as Error).message, file: DAG_FILE });
     }
   }
 
@@ -113,7 +123,7 @@ export class DagExecutor extends EventEmitter {
       }
       writeFileSync(DAG_FILE, JSON.stringify(Array.from(this.dags.values()), null, 2));
     } catch (e) {
-      console.error('Failed to save DAGs:', e);
+      log.error('Failed to save DAGs', { error: (e as Error).message });
     }
   }
 
@@ -180,7 +190,7 @@ export class DagExecutor extends EventEmitter {
     this.dags.set(id, dag);
     this.saveDags();
     this.emit('dag:created', dag);
-    console.log(`📊 DAG created: ${dag.id} "${dag.name}" with ${nodes.length} nodes, ${input.edges.length} edges`);
+    log.info('DAG created', { dagId: dag.id, name: dag.name, nodes: nodes.length, edges: input.edges.length, project: dag.project });
     return dag;
   }
 
@@ -253,7 +263,7 @@ export class DagExecutor extends EventEmitter {
     this.saveDags();
 
     this.emit('dag:node:added', { dag, node: newNode, edges: input.edges });
-    console.log(`  + Sub-agent node "${newNode.title}" added to DAG ${dagId}`);
+    log.info('Sub-agent node added', { dagId, nodeId: newNode.id, title: newNode.title });
 
     // If DAG is running, try to advance (might pick up the new node)
     if (dag.status === 'running') {
@@ -286,7 +296,7 @@ export class DagExecutor extends EventEmitter {
 
     this.saveDags();
     this.emit('dag:started', dag);
-    console.log(`🚀 DAG execution started: ${dag.id} "${dag.name}"`);
+    log.info('DAG execution started', { dagId: dag.id, name: dag.name, nodes: dag.nodes.length });
 
     // Kick off root nodes (no incoming edges)
     await this.advanceDag(dag);
@@ -300,6 +310,9 @@ export class DagExecutor extends EventEmitter {
     if (dag.status !== 'running') return;
 
     const ready = this.getReadyNodes(dag);
+    if (ready.length > 0) {
+      log.info('Advancing DAG', { dagId: dag.id, readyNodes: ready.map(n => n.id) });
+    }
 
     for (const node of ready) {
       if (node.type === 'gate') {
@@ -317,7 +330,8 @@ export class DagExecutor extends EventEmitter {
       dag.updated_at = new Date().toISOString();
       this.saveDags();
       this.emit('dag:completed', dag);
-      console.log(`📊 DAG ${newStatus}: ${dag.id} "${dag.name}"`);
+      const summary = dag.nodes.map(n => `${n.id}:${n.status}`).join(', ');
+      log.info('DAG finished', { dagId: dag.id, name: dag.name, status: newStatus, summary });
     }
   }
 
@@ -380,7 +394,7 @@ export class DagExecutor extends EventEmitter {
 
       // Fire and forget — TaskRunner events will call onTaskDone
       this.taskRunner.runTask(task).catch(err => {
-        console.error(`DAG node ${node.id} task failed to start:`, err);
+        log.error('DAG node task failed to start', { dagId: dag.id, nodeId: node.id, taskId: task.id, error: err.message });
         node.status = 'failed';
         node.error = err.message;
         this.saveDags();
@@ -388,13 +402,13 @@ export class DagExecutor extends EventEmitter {
       });
 
       this.emit('dag:node:started', { dag, node });
-      console.log(`  ▶ Node "${node.title}" started (task ${task.id}, role: ${node.role || 'none'})`);
+      log.info('Node started', { dagId: dag.id, nodeId: node.id, taskId: task.id, title: node.title, role: node.role || 'none' });
     } catch (err: any) {
       node.status = 'failed';
       node.error = err.message;
       node.completed_at = new Date().toISOString();
       this.saveDags();
-      console.error(`  ✖ Node "${node.title}" failed to create task:`, err);
+      log.error('Node failed to create task', { dagId: dag.id, nodeId: node.id, title: node.title, error: err.message });
       await this.advanceDag(dag);
     }
   }
@@ -425,12 +439,12 @@ export class DagExecutor extends EventEmitter {
     if (passed) {
       gate.status = 'completed';
       gate.completed_at = new Date().toISOString();
-      console.log(`  ✓ Gate "${gate.title}" passed`);
+      log.info('Gate passed', { dagId: dag.id, gateId: gate.id, title: gate.title, condition });
     } else {
       gate.status = 'failed';
       gate.error = `Gate condition '${condition}' not met`;
       gate.completed_at = new Date().toISOString();
-      console.log(`  ✖ Gate "${gate.title}" failed`);
+      log.warn('Gate failed', { dagId: dag.id, gateId: gate.id, title: gate.title, condition });
     }
 
     dag.updated_at = new Date().toISOString();
@@ -452,7 +466,7 @@ export class DagExecutor extends EventEmitter {
     node.completed_at = new Date().toISOString();
     dag.updated_at = new Date().toISOString();
     this.saveDags();
-    console.log(`  ✓ Gate "${node.title}" manually approved`);
+    log.info('Gate manually approved', { dagId, nodeId, title: node.title });
     this.advanceDag(dag);
     return true;
   }
@@ -462,7 +476,10 @@ export class DagExecutor extends EventEmitter {
    */
   private onTaskDone(taskId: string, result: 'completed' | 'failed'): void {
     const mapping = this.taskToDag.get(taskId);
-    if (!mapping) return; // not a DAG task
+    if (!mapping) {
+      log.debug('onTaskDone: no DAG mapping (standalone task)', { taskId, result });
+      return;
+    }
 
     const dag = this.dags.get(mapping.dagId);
     if (!dag) return;
@@ -493,7 +510,7 @@ export class DagExecutor extends EventEmitter {
     this.taskToDag.delete(taskId);
     this.saveDags();
 
-    console.log(`  ${result === 'completed' ? '✓' : '✖'} Node "${node.title}" ${result}`);
+    log.info('Node finished', { dagId: mapping.dagId, nodeId: node.id, title: node.title, result, taskId });
     this.emit(`dag:node:${result}`, { dag, node });
 
     // Advance the DAG

@@ -2,6 +2,9 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { randomBytes } from "crypto";
 import type { Task, TaskStatus } from "./types.js";
+import { createLogger } from './logger.js';
+
+const log = createLogger('task-mgr');
 
 export class TaskManager {
   private tasksFile: string;
@@ -19,13 +22,13 @@ export class TaskManager {
       if (existsSync(this.tasksFile)) {
         const data = readFileSync(this.tasksFile, "utf-8");
         this.tasks = JSON.parse(data);
-        console.log(`Loaded ${this.tasks.length} tasks from ${this.tasksFile}`);
+        log.info('Tasks loaded', { count: this.tasks.length, file: this.tasksFile });
       } else {
         this.tasks = [];
         this.saveTasks();
       }
     } catch (e) {
-      console.error("Failed to load tasks:", e);
+      log.error('Failed to load tasks', { error: (e as Error).message });
       this.tasks = [];
     }
   }
@@ -34,7 +37,7 @@ export class TaskManager {
     try {
       writeFileSync(this.tasksFile, JSON.stringify(this.tasks, null, 2));
     } catch (e) {
-      console.error("Failed to save tasks:", e);
+      log.error('Failed to save tasks', { error: (e as Error).message });
     }
   }
 
@@ -70,7 +73,7 @@ export class TaskManager {
     if (body.role) (task as any).role = body.role;
     this.tasks.push(task);
     this.saveTasks();
-    console.log(`Created task ${task.id}: ${body.title}`);
+    log.info('Task created', { taskId: task.id, title: body.title, project: body.project, agent: body.agent });
     return task;
   }
 
@@ -127,7 +130,7 @@ export class TaskManager {
     if (idx === -1) return false;
     this.tasks.splice(idx, 1);
     this.saveTasks();
-    console.log(`Deleted task ${id}`);
+    log.info('Task deleted', { taskId: id });
     return true;
   }
 
@@ -135,7 +138,7 @@ export class TaskManager {
     const count = this.tasks.length;
     this.tasks = [];
     this.saveTasks();
-    console.log(`Deleted all ${count} tasks`);
+    log.info('All tasks deleted', { count });
     return count;
   }
 }

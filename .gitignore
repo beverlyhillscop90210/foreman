@@ -44,3 +44,4 @@ temp/
 .wrangler/
 wrangler.toml.local
 
+projects/
