@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatPanel } from "../components/chat/ChatPanel";
-import HGMemPage from "./HGMemPage";
 
 interface KnowledgeDocument {
   id: string;
@@ -203,7 +202,6 @@ const DocDetailModal = ({
 
 // --- Main Page ---
 export const KnowledgePage = () => {
-  const [contentView, setContentView] = useState<"documents" | "hgmem">("documents");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocument | null>(null);
@@ -252,17 +250,6 @@ export const KnowledgePage = () => {
 
   return (
     <div className="w-full h-full bg-[#0a0a0a] flex flex-col" style={{ cursor: isResizing ? "col-resize" : undefined }}>
-      {/* Top-level view tabs */}
-      <div className="flex border-b border-[#333] bg-[#111111] flex-shrink-0">
-        <button onClick={() => setContentView("documents")} className={"px-5 py-2.5 font-mono text-xs transition-colors " + (contentView === "documents" ? "text-[#FF6B2B] border-b-2 border-[#FF6B2B]" : "text-[#999] hover:text-[#FF6B2B]")}>Documents</button>
-        <button onClick={() => setContentView("hgmem")} className={"px-5 py-2.5 font-mono text-xs transition-colors " + (contentView === "hgmem" ? "text-[#FF6B2B] border-b-2 border-[#FF6B2B]" : "text-[#999] hover:text-[#FF6B2B]")}>HGMem</button>
-      </div>
-
-      {contentView === "hgmem" ? (
-        <div className="flex-1 min-h-0">
-          <HGMemPage />
-        </div>
-      ) : (
       <div className="flex-1 flex min-h-0">
       {/* Modal */}
       {selectedDoc && (
@@ -328,7 +315,6 @@ export const KnowledgePage = () => {
         </div>
       </div>
       </div>
-      )}
     </div>
   );
 };

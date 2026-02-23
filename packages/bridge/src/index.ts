@@ -42,6 +42,8 @@ const knowledgeService = new KnowledgeService();
 const dagExecutor = new DagExecutor(taskRunner, taskManager);
 const deviceRegistry = new DeviceRegistry();
 const tunnelService = new TunnelService();
+const hgmemEngine = new HGMemEngine(knowledgeService);
+loadHGMemSessions(hgmemEngine);
 
 // Wire knowledge loader into TaskRunner so role-aware prompts include relevant knowledge
 taskRunner.knowledgeLoader = async (query: string): Promise<string> => {
@@ -266,7 +268,7 @@ app.post('/tasks/:id/reject', async (c) => {
 const kanbanRouter = createKanbanRoutes(kanbanCoordinator);
 app.route('/kanban', kanbanRouter);
 
-// Chat endpoint for Smartass
+// Chat endpoint for Smartass — with knowledge search + deep research tools
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -286,80 +288,174 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'OPENROUTER_API_KEY not configured' }, 500);
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'anthropic/claude-3.5-sonnet',
-        messages: [
-          { role: 'system', content: 'You are Smartass, an expert AI assistant for the Foreman project. You help the user with their tasks, knowledge base, and project management. You can create tasks for the user using the create_task tool.' },
-          ...(history || []),
-          { role: 'user', content: message }
-        ],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'create_task',
-              description: 'Create a new task in the Foreman system.',
-              parameters: {
-                type: 'object',
-                properties: {
-                  title: { type: 'string', description: 'A short, descriptive title for the task.' },
-                  description: { type: 'string', description: 'A detailed description of what needs to be done.' },
-                  project: { type: 'string', description: 'The project name or bucket this task belongs to.' },
-                  agent: { type: 'string', description: 'The agent type to assign to this task (e.g., claude-code, custom).' }
-                },
-                required: ['title', 'description', 'project']
-              }
-            }
+    const systemPrompt = `You are Smartass, an expert AI assistant for the Foreman project.
+You help the user with their tasks, knowledge base, and project management.
+
+You have three tools:
+• search_knowledge — Semantic search across the knowledge base. Use for quick lookups, factual questions, finding docs.
+• deep_research — Multi-step iterative research (HGMem). Use when a question needs thorough analysis across many documents, or when search_knowledge didn't return enough context. This takes longer but produces comprehensive answers.
+• create_task — Create and auto-start a task in Foreman. Use when the user asks you to do something that requires an agent.
+
+Always search the knowledge base when the user asks about project-specific information, documentation, or technical details. Start with search_knowledge; escalate to deep_research if needed.
+
+Be concise and direct. Use markdown formatting.`;
+
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'search_knowledge',
+          description: 'Semantic search across the Foreman knowledge base. Returns matching documents with titles, categories, and content snippets.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'The search query — be specific and descriptive.' },
+              category: { type: 'string', description: 'Optional category filter (e.g., "Architecture", "API", "Deployment").' },
+              limit: { type: 'number', description: 'Max results to return (default: 5, max: 20).' }
+            },
+            required: ['query']
           }
-        ]
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenRouter API error:', errorText);
-      return c.json({ error: `OpenRouter API error: ${response.statusText}` }, 500);
-    }
-
-    const data = await response.json() as any;
-    const responseMessage = data.choices[0].message;
-
-    if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-      let content = responseMessage.content || '';
-      
-      for (const toolCall of responseMessage.tool_calls) {
-        if (toolCall.function.name === 'create_task') {
-          try {
-            const args = JSON.parse(toolCall.function.arguments);
-            const newTask = await taskManager.createTask({
-              title: args.title,
-              description: args.description,
-              project: args.project,
-              agent: args.agent || 'claude-code',
-              briefing: args.description
-            });
-            
-            // Start the task automatically
-            taskRunner.runTask(newTask).catch(err => console.error('Failed to run task:', err));
-            
-            content += `\n\n✅ Created task: **${newTask.title}** (ID: ${newTask.id}) in project \`${newTask.project}\`.`;
-          } catch (err) {
-            console.error('Failed to create task from tool call:', err);
-            content += `\n\n❌ Failed to create task: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'deep_research',
+          description: 'Run a multi-step research session using HGMem (Hypergraph Memory). Iteratively retrieves evidence, builds a knowledge graph, and synthesizes a thorough answer. Use for complex questions that need deep analysis. Takes 30-60 seconds.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'The research question — be detailed about what you want to understand.' },
+              project: { type: 'string', description: 'Project context for scoping the research (default: "default").' }
+            },
+            required: ['query']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'create_task',
+          description: 'Create a new task in the Foreman system and auto-start it.',
+          parameters: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'A short, descriptive title for the task.' },
+              description: { type: 'string', description: 'A detailed description of what needs to be done.' },
+              project: { type: 'string', description: 'The project name or bucket this task belongs to.' },
+              agent: { type: 'string', description: 'The agent type to assign (e.g., claude-code, custom).' }
+            },
+            required: ['title', 'description', 'project']
           }
         }
       }
-      
-      return c.json({ content: content.trim() });
+    ];
+
+    // Build initial messages
+    const llmMessages: any[] = [
+      { role: 'system', content: systemPrompt },
+      ...(history || []).slice(-10),
+      { role: 'user', content: message }
+    ];
+
+    // Tool-call loop: LLM may invoke tools, we execute them and feed results back
+    const MAX_TOOL_ROUNDS = 5;
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'anthropic/claude-sonnet-4-20250514',
+          messages: llmMessages,
+          tools,
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('OpenRouter API error:', errorText);
+        return c.json({ error: `OpenRouter API error: ${response.statusText}` }, 500);
+      }
+
+      const data = await response.json() as any;
+      const assistantMsg = data.choices[0].message;
+
+      // No tool calls → return final content
+      if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
+        return c.json({ content: assistantMsg.content || 'No response.' });
+      }
+
+      // Add assistant message (with tool_calls) to conversation
+      llmMessages.push(assistantMsg);
+
+      // Execute each tool call
+      for (const toolCall of assistantMsg.tool_calls) {
+        const args = JSON.parse(toolCall.function.arguments);
+        let result = '';
+
+        try {
+          switch (toolCall.function.name) {
+            case 'search_knowledge': {
+              const docs = await knowledgeService.semanticSearch(args.query, {
+                limit: Math.min(args.limit || 5, 20),
+                category: args.category,
+              });
+              if (docs.length === 0) {
+                result = 'No documents found matching that query.';
+              } else {
+                result = docs.map((d: any) =>
+                  `### ${d.title}\n**Category:** ${d.category} | **Source:** ${d.source_type} | **Similarity:** ${(d.similarity ?? 0).toFixed(2)}\n\n${d.content.slice(0, 2000)}`
+                ).join('\n\n---\n\n');
+              }
+              log.info(`search_knowledge: "${args.query}" → ${docs.length} results`);
+              break;
+            }
+
+            case 'deep_research': {
+              log.info(`deep_research: "${args.query}" (project: ${args.project || 'default'})`);
+              const session = hgmemEngine.createSession(args.query, args.project || 'default');
+              const completed = await hgmemEngine.run(session.id);
+              result = completed.response || 'Research completed but no synthesized response was generated.';
+              log.info(`deep_research complete: ${completed.current_step} steps, ${completed.memory.hyperedges?.size || 0} memory points`);
+              break;
+            }
+
+            case 'create_task': {
+              const newTask = await taskManager.createTask({
+                title: args.title,
+                description: args.description,
+                project: args.project,
+                agent: args.agent || 'claude-code',
+                briefing: args.description
+              });
+              taskRunner.runTask(newTask).catch(err => console.error('Failed to run task:', err));
+              result = `Task created and started: "${newTask.title}" (ID: ${newTask.id}) in project "${newTask.project}"`;
+              log.info(`create_task: ${newTask.id} "${newTask.title}"`);
+              break;
+            }
+
+            default:
+              result = `Unknown tool: ${toolCall.function.name}`;
+          }
+        } catch (err) {
+          result = `Tool error: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          console.error(`Tool ${toolCall.function.name} error:`, err);
+        }
+
+        // Feed tool result back to conversation
+        llmMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: result,
+        });
+      }
+      // Loop back → LLM sees tool results and either responds or calls more tools
     }
 
-    return c.json({ content: responseMessage.content });
+    return c.json({ content: 'Max tool iterations reached. Please try simplifying your question.' });
   } catch (error) {
     console.error('Chat error:', error);
     return c.json({ error: 'Internal server error' }, 500);
@@ -484,8 +580,6 @@ dagExecutor.on('dag:node:waiting_approval', (e) => wsManager.broadcast({ type: '
 dagExecutor.on('dag:node:added', (e) => wsManager.broadcast({ type: 'dag:node:added', dagId: e.dag.id, node: e.node, edges: e.edges }));
 
 // Mount HGMem routes
-const hgmemEngine = new HGMemEngine(knowledgeService);
-loadHGMemSessions(hgmemEngine);
 const hgmemRouter = createHGMemRoutes(hgmemEngine);
 app.route('/hgmem', hgmemRouter);
 
