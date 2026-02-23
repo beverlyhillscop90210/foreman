@@ -44,7 +44,7 @@ function SetupTerminal({
   token: string;
   onClose: () => void;
 }) {
-  const [os, setOs] = useState<'macos' | 'linux' | 'docker'>('linux');
+  const [os, setOs] = useState<'macos' | 'linux' | 'docker' | 'windows'>('linux');
   const [copied, setCopied] = useState(false);
   const [connected, setConnected] = useState(false);
   const termRef = useRef<HTMLPreElement>(null);
@@ -69,13 +69,20 @@ function SetupTerminal({
   const bridgeUrl = import.meta.env.VITE_BRIDGE_URL || 'https://foreman.beverlyhillscop.io';
 
   // Build the one-liner setup command
-  const setupCommand = `curl -sfL "${bridgeUrl}/devices/${device.id}/setup-script?os=${os}" -o /tmp/foreman-setup.sh && DEVICE_TOKEN="${token}" bash /tmp/foreman-setup.sh`;
+  const setupCommand = os === 'windows'
+    ? `Invoke-WebRequest -Uri "${bridgeUrl}/devices/${device.id}/setup-script?os=windows" -OutFile $env:TEMP\\foreman-setup.ps1; $env:DEVICE_TOKEN="${token}"; & $env:TEMP\\foreman-setup.ps1`
+    : `curl -sfL "${bridgeUrl}/devices/${device.id}/setup-script?os=${os}" -o /tmp/foreman-setup.sh && DEVICE_TOKEN="${token}" bash /tmp/foreman-setup.sh`;
 
   // The manual steps (for display in the terminal)
-  const manualSteps = [
-    { step: 1, label: 'Install cloudflared', cmd: os === 'macos' ? 'brew install cloudflared' : os === 'docker' ? 'docker pull cloudflare/cloudflared:latest' : 'curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared' },
-    { step: 2, label: 'Connect device to Foreman', cmd: `curl -X POST "${bridgeUrl}/devices/connect" \\\n  -H "Content-Type: application/json" \\\n  -d '{"token": "${token}"}'` },
-  ];
+  const manualSteps = os === 'windows'
+    ? [
+        { step: 1, label: 'Install cloudflared', cmd: 'winget install --id Cloudflare.cloudflared --accept-package-agreements' },
+        { step: 2, label: 'Connect device to Foreman', cmd: `Invoke-RestMethod -Uri "${bridgeUrl}/devices/connect" -Method POST -ContentType "application/json" -Body '{"token": "${token}"}'` },
+      ]
+    : [
+        { step: 1, label: 'Install cloudflared', cmd: os === 'macos' ? 'brew install cloudflared' : os === 'docker' ? 'docker pull cloudflare/cloudflared:latest' : 'curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared' },
+        { step: 2, label: 'Connect device to Foreman', cmd: `curl -X POST "${bridgeUrl}/devices/connect" \\\n  -H "Content-Type: application/json" \\\n  -d '{"token": "${token}"}'` },
+      ];
 
   const handleCopy = () => {
     navigator.clipboard.writeText(setupCommand);
@@ -122,8 +129,8 @@ function SetupTerminal({
             <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
               Target OS
             </label>
-            <div className="flex gap-2">
-              {(['linux', 'macos', 'docker'] as const).map((o) => (
+            <div className="flex gap-2 flex-wrap">
+              {(['linux', 'macos', 'windows', 'docker'] as const).map((o) => (
                 <button
                   key={o}
                   onClick={() => setOs(o)}
@@ -133,7 +140,7 @@ function SetupTerminal({
                       : 'bg-foreman-bg-dark border-foreman-border text-foreman-text hover:border-foreman-orange'
                   }`}
                 >
-                  {o === 'macos' ? '🍎 macOS' : o === 'docker' ? '🐳 Docker' : '🐧 Linux'}
+                  {o === 'macos' ? '🍎 macOS' : o === 'docker' ? '🐳 Docker' : o === 'windows' ? '🪟 Windows' : '🐧 Linux'}
                 </button>
               ))}
             </div>
@@ -142,14 +149,14 @@ function SetupTerminal({
           {/* One-Click Command */}
           <div>
             <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
-              Quick Setup — paste this in your terminal
+              Quick Setup — paste this in your {os === 'windows' ? 'PowerShell' : 'terminal'}
             </label>
             <div className="relative group">
               <pre
                 ref={termRef}
                 className="bg-black border border-foreman-border p-4 font-mono text-sm text-green-400 overflow-x-auto whitespace-pre-wrap select-all"
               >
-                <span className="text-zinc-500">$ </span>
+                <span className="text-zinc-500">{os === 'windows' ? 'PS> ' : '$ '}</span>
                 {setupCommand}
               </pre>
               <button

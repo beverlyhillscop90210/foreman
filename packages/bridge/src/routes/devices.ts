@@ -191,7 +191,7 @@ export function createDeviceRoutes(
     const device = registry.getDevice(c.req.param('id'));
     if (!device) return c.json({ error: 'Device not found' }, 404);
 
-    const os = (c.req.query('os') || 'linux') as 'macos' | 'linux' | 'docker';
+    const os = (c.req.query('os') || 'linux') as 'macos' | 'linux' | 'docker' | 'windows';
     const bridgeUrl = c.req.query('bridge_url') || process.env.BRIDGE_PUBLIC_URL || 'https://foreman.beverlyhillscop.io';
     const cfToken = c.req.query('cf_token') || process.env.CF_TUNNEL_TOKEN || '';
 
@@ -250,7 +250,7 @@ interface TunnelInfo {
 // ── Setup Script Generator ──────────────────────────────────────
 
 interface SetupScriptOpts {
-  os: 'macos' | 'linux' | 'docker';
+  os: 'macos' | 'linux' | 'docker' | 'windows';
   deviceId: string;
   deviceName: string;
   bridgeUrl: string;
@@ -259,6 +259,11 @@ interface SetupScriptOpts {
 
 function generateSetupScript(opts: SetupScriptOpts): string {
   const { os, deviceId, deviceName, bridgeUrl, cfTunnelToken } = opts;
+
+  // Windows gets a PowerShell script
+  if (os === 'windows') {
+    return generateWindowsScript(opts);
+  }
 
   const header = `#!/bin/bash
 set -e
@@ -420,4 +425,125 @@ fi
 `;
 
   return header + installCf + '\n' + startTunnel + '\n' + detect + '\n' + register;
+}
+
+function generateWindowsScript(opts: SetupScriptOpts): string {
+  const { deviceName, bridgeUrl, cfTunnelToken } = opts;
+
+  return `# Foreman Device Setup — PowerShell
+# Run this in an elevated PowerShell terminal
+$ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor DarkYellow
+Write-Host "║           FOREMAN — Device Connection Setup                 ║" -ForegroundColor DarkYellow
+Write-Host "║           Device: ${deviceName.padEnd(40).slice(0, 40)}║" -ForegroundColor DarkYellow
+Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor DarkYellow
+Write-Host ""
+
+# Step 1: Install cloudflared
+Write-Host "▸ Installing cloudflared..." -ForegroundColor Cyan
+if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
+  Write-Host "  Downloading cloudflared..."
+  $cfUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.msi"
+  $installer = "$env:TEMP\\cloudflared.msi"
+  Invoke-WebRequest -Uri $cfUrl -OutFile $installer -UseBasicParsing
+  Start-Process msiexec.exe -ArgumentList "/i", $installer, "/quiet" -Wait
+  Remove-Item $installer -Force
+  Write-Host "  ✓ cloudflared installed" -ForegroundColor Green
+} else {
+  Write-Host "  ✓ cloudflared already installed" -ForegroundColor Green
+}
+
+${cfTunnelToken ? `# Step 2: Start Cloudflare Tunnel
+Write-Host ""
+Write-Host "▸ Starting Cloudflare Tunnel..." -ForegroundColor Cyan
+$tunnelJob = Start-Job -ScriptBlock {
+  cloudflared tunnel run --token ${cfTunnelToken}
+}
+Start-Sleep -Seconds 3
+Write-Host "  ✓ Tunnel running (Job ID: $($tunnelJob.Id))" -ForegroundColor Green
+Write-Host ""
+Write-Host "  To install as a Windows service:" -ForegroundColor DarkGray
+Write-Host "  cloudflared service install ${cfTunnelToken}" -ForegroundColor DarkGray
+` : `# Step 2: Cloudflare Tunnel (skipped — no token configured)
+Write-Host "⚠  No Cloudflare tunnel token configured." -ForegroundColor Yellow
+`}
+# Step 3: Detect device capabilities
+Write-Host ""
+Write-Host "▸ Detecting device capabilities..." -ForegroundColor Cyan
+$caps = @{}
+
+# GPU detection (NVIDIA)
+try {
+  $nvSmi = & nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>$null
+  if ($nvSmi) {
+    $parts = $nvSmi -split ","
+    $caps["gpu"] = $parts[0].Trim() + " " + $parts[1].Trim()
+    Write-Host "  GPU: $($caps['gpu'])"
+  }
+} catch {}
+
+# CUDA
+try {
+  $nvcc = & nvcc --version 2>$null | Select-String "release"
+  if ($nvcc -match "release ([\\d.]+)") {
+    $caps["cuda"] = $Matches[1]
+    Write-Host "  CUDA: $($caps['cuda'])"
+  }
+} catch {}
+
+# Python
+try {
+  $pyVer = & python --version 2>$null
+  if ($pyVer -match "Python ([\\d.]+)") {
+    $caps["python"] = $Matches[1]
+    Write-Host "  Python: $($caps['python'])"
+  }
+} catch {}
+
+# Ollama
+try {
+  $ollamaVer = & ollama --version 2>$null
+  if ($ollamaVer) {
+    $models = & ollama list 2>$null | Select-Object -Skip 1 | ForEach-Object { ($_ -split "\\s+")[0] }
+    $caps["ollama"] = @{ version = $ollamaVer.Trim(); models = @($models) }
+    Write-Host "  Ollama: $($ollamaVer.Trim()) — $($models.Count) models"
+  }
+} catch {}
+
+# OS & Memory
+$caps["os"] = [System.Environment]::OSVersion.VersionString
+$caps["arch"] = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+$memGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+$caps["memory_gb"] = $memGB
+Write-Host "  OS: $($caps['os'])"
+Write-Host "  Memory: \${memGB}GB"
+
+$capsJson = $caps | ConvertTo-Json -Compress
+
+# Step 4: Register with Foreman
+Write-Host ""
+if (-not $env:DEVICE_TOKEN) {
+  $env:DEVICE_TOKEN = Read-Host "▸ Enter your connection token"
+}
+Write-Host "▸ Registering device with Foreman..." -ForegroundColor Cyan
+try {
+  $body = "{\\"token\\": \\"$($env:DEVICE_TOKEN)\\", \\"capabilities\\": $capsJson}"
+  $response = Invoke-RestMethod -Uri "${bridgeUrl}/devices/connect" -Method POST -ContentType "application/json" -Body $body
+  Write-Host "  ✓ Device registered successfully!" -ForegroundColor Green
+  Write-Host "  Name:   $($response.device.name)"
+  Write-Host "  Status: $($response.device.status)"
+  Write-Host "  Type:   $($response.device.type)"
+  Write-Host ""
+  Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+  Write-Host "║  ✓ Device connected to Foreman!                            ║" -ForegroundColor Green
+  Write-Host "║  You can now assign tasks to this device from the DAG.     ║" -ForegroundColor Green
+  Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+} catch {
+  Write-Host "  ✗ Failed to register device." -ForegroundColor Red
+  Write-Host "  Error: $_" -ForegroundColor Red
+  exit 1
+}
+`;
 }
