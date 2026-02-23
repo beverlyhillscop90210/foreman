@@ -13,9 +13,71 @@ export class TaskRunner extends EventEmitter {
   private runningTasks: Map<string, Task> = new Map();
   private taskTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private taskProcesses: Map<string, any> = new Map();
-  private readonly TASK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+  private readonly TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
   /** Optional callback to load knowledge context for a task */
   public knowledgeLoader?: (query: string) => Promise<string>;
+
+  /**
+   * Parse a stream-json event from Claude CLI into a human-readable line.
+   * Returns null if the event should be suppressed.
+   */
+  private parseStreamEvent(evt: any): string | null {
+    switch (evt.type) {
+      case 'system':
+        return `⚙️ Agent started (model: ${evt.model || 'unknown'}, tools: ${(evt.tools || []).length})`;
+
+      case 'assistant': {
+        const msg = evt.message;
+        if (!msg?.content) return null;
+        const parts: string[] = [];
+        for (const block of msg.content) {
+          if (block.type === 'text' && block.text) {
+            // Truncate long text blocks for the live feed
+            const text = block.text.length > 500 ? block.text.slice(0, 500) + '...' : block.text;
+            parts.push(text);
+          } else if (block.type === 'tool_use') {
+            const name = block.name || 'unknown_tool';
+            if (name === 'Write' || name === 'Edit') {
+              const file = block.input?.file_path || block.input?.filePath || '';
+              parts.push(`📝 ${name}: ${file}`);
+            } else if (name === 'Bash') {
+              const cmd = (block.input?.command || '').slice(0, 200);
+              parts.push(`🖥️ Bash: ${cmd}`);
+            } else if (name === 'Read') {
+              const file = block.input?.file_path || block.input?.filePath || '';
+              parts.push(`📖 Read: ${file}`);
+            } else if (name === 'Glob' || name === 'Grep') {
+              parts.push(`🔍 ${name}: ${block.input?.pattern || block.input?.query || ''}`);
+            } else if (name === 'WebSearch' || name === 'WebFetch') {
+              parts.push(`🌐 ${name}: ${block.input?.query || block.input?.url || ''}`);
+            } else {
+              parts.push(`🔧 ${name}`);
+            }
+          }
+        }
+        return parts.length > 0 ? parts.join('\n') : null;
+      }
+
+      case 'tool_result': {
+        // Brief summary of tool result
+        if (evt.is_error) {
+          return `❌ Tool error: ${(evt.content || '').slice(0, 200)}`;
+        }
+        return null; // Suppress success results (too verbose)
+      }
+
+      case 'result': {
+        const r = evt.result || '';
+        const cost = evt.total_cost_usd ? `$${evt.total_cost_usd.toFixed(4)}` : '';
+        const turns = evt.num_turns || 0;
+        const duration = evt.duration_ms ? `${(evt.duration_ms / 1000).toFixed(1)}s` : '';
+        return `✅ Agent finished (${turns} turns, ${duration}, ${cost}): ${typeof r === 'string' ? r.slice(0, 300) : 'done'}`;
+      }
+
+      default:
+        return null;
+    }
+  }
 
   /**
    * Build a role-enriched prompt for the task.
@@ -85,9 +147,10 @@ export class TaskRunner extends EventEmitter {
     let command = '';
     let args: string[] = [];
 
-    if (task.agent === 'claude-code' || task.agent === 'claude') {
+    const isClaude = task.agent === 'claude-code' || task.agent === 'claude';
+    if (isClaude) {
       command = 'claude';
-      args = ['-p', '--dangerously-skip-permissions', prompt];
+      args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', prompt];
     } else if (task.agent === 'augment' || task.agent === 'augment-agent') {
       command = 'augment';
       args = ['run', prompt];
@@ -112,13 +175,13 @@ export class TaskRunner extends EventEmitter {
       }
     }
 
-    // On Linux, claude CLI needs a pseudo-TTY to run in headless mode.
-    // Wrap the command with `script -qc` to supply one.
+    // On Linux, non-Claude CLI agents may need a pseudo-TTY.
+    // Claude with --output-format stream-json doesn't need it (print mode works headless).
     let spawnCommand: string;
     let spawnArgs: string[];
-    const isLinuxClaude = platform() === 'linux' && (command === 'claude');
+    const isLinuxNonClaude = platform() === 'linux' && !isClaude && (command !== 'echo');
     
-    if (isLinuxClaude) {
+    if (isLinuxNonClaude) {
       // Build the full command string, properly quoted for the shell
       const escapedArgs = args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
       const fullCmd = `${command} ${escapedArgs}`;
@@ -152,13 +215,40 @@ export class TaskRunner extends EventEmitter {
       }, this.TASK_TIMEOUT_MS);
       this.taskTimeouts.set(task.id, timeout);
 
+      // Buffer for partial JSON lines (stream may split across data events)
+      let jsonBuffer = '';
+
       child.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n');
-        for (const line of lines) {
-          // Strip ANSI escape codes and carriage returns (from pseudo-TTY wrapper)
-          const cleaned = line.replace(/\x1b\[[^m]*m|\x1b\[\?[0-9;]*[hl]|\x1b\][^\x07]*\x07|\x1b\[<[^\n]*|\r/g, '').trim();
-          if (cleaned) {
-            this.emit('task:output', { taskId: task.id, line: cleaned, stream: 'stdout' });
+        if (isClaude) {
+          // Parse NDJSON stream from claude --output-format stream-json
+          jsonBuffer += data.toString();
+          const lines = jsonBuffer.split('\n');
+          jsonBuffer = lines.pop() || ''; // Keep incomplete last line in buffer
+          for (const rawLine of lines) {
+            const trimmed = rawLine.trim();
+            if (!trimmed) continue;
+            try {
+              const evt = JSON.parse(trimmed);
+              const output = this.parseStreamEvent(evt);
+              if (output) {
+                this.emit('task:output', { taskId: task.id, line: output, stream: 'stdout' });
+              }
+            } catch {
+              // Not valid JSON — emit raw (stripped of ANSI)
+              const cleaned = trimmed.replace(/\x1b\[[^m]*m|\r/g, '').trim();
+              if (cleaned) {
+                this.emit('task:output', { taskId: task.id, line: cleaned, stream: 'stdout' });
+              }
+            }
+          }
+        } else {
+          // Non-Claude agents: raw line output
+          const lines = data.toString().split('\n');
+          for (const line of lines) {
+            const cleaned = line.replace(/\x1b\[[^m]*m|\x1b\[\?[0-9;]*[hl]|\x1b\][^\x07]*\x07|\x1b\[<[^\n]*|\r/g, '').trim();
+            if (cleaned) {
+              this.emit('task:output', { taskId: task.id, line: cleaned, stream: 'stdout' });
+            }
           }
         }
       });
