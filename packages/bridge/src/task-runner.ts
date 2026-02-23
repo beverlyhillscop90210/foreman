@@ -13,7 +13,7 @@ export class TaskRunner extends EventEmitter {
   private runningTasks: Map<string, Task> = new Map();
   private taskTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private taskProcesses: Map<string, any> = new Map();
-  private readonly TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+  private readonly TASK_TIMEOUT_MS = 120 * 60 * 1000; // 120 minutes
   /** Optional callback to load knowledge context for a task */
   public knowledgeLoader?: (query: string) => Promise<string>;
 
