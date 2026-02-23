@@ -14,6 +14,7 @@ export const TopBar = () => {
     { path: '/', label: 'Dashboard' },
     { path: '/kanban', label: 'Kanban' },
     { path: '/knowledge', label: 'Knowledge' },
+    { path: '/hgmem', label: 'HGMem' },
     { path: '/settings', label: 'Settings' },
   ];
 

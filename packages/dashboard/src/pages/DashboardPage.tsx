@@ -377,7 +377,7 @@ function DagMetricsPanel({ dag }: { dag: Dag }) {
 
 // ── Task List Item (sidebar) ───────────────────────────────────
 
-function TaskListItem({ task }: { task: Task }) {
+function TaskListItem({ task, onDelete }: { task: Task; onDelete?: (id: string) => void }) {
   const statusColor =
     task.status === 'completed' || task.status === 'approved' ? '#22c55e' :
     task.status === 'running'   ? '#3b82f6' :
@@ -405,7 +405,18 @@ function TaskListItem({ task }: { task: Task }) {
     <div className="rounded-md p-2 border border-[#30363d]/60 bg-[#161b22]/40 hover:border-[#484f58] transition-all">
       <div className="flex items-center justify-between gap-1">
         <span className="font-mono text-[10px] truncate text-[#c9d1d9]">{task.title}</span>
-        <span className="text-[10px] shrink-0" style={{ color: statusColor }}>{statusEmoji}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {(task.status === 'failed' || task.status === 'rejected' || task.status === 'qc_failed' || task.status === 'completed' || task.status === 'approved') && onDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
+              className="text-[9px] text-[#484f58] hover:text-[#ef4444] transition-colors px-0.5"
+              title="Delete task"
+            >
+              ✕
+            </button>
+          )}
+          <span className="text-[10px]" style={{ color: statusColor }}>{statusEmoji}</span>
+        </div>
       </div>
       <div className="flex items-center justify-between mt-0.5">
         <span className="font-mono text-[9px] text-[#484f58] truncate">{task.agent}</span>
@@ -517,7 +528,7 @@ export const DashboardPage = () => {
             {tasks.length === 0 ? (
               <div className="text-[10px] text-[#484f58] italic text-center py-3 font-mono">No tasks</div>
             ) : (
-              tasks.map(task => <TaskListItem key={task.id} task={task} />)
+              tasks.map(task => <TaskListItem key={task.id} task={task} onDelete={async (id) => { await api.deleteTask(id); fetchTasks(); }} />)
             )}
           </div>
         </div>

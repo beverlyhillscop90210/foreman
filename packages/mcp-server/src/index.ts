@@ -730,11 +730,134 @@ registerTool(
   }
 );
 
+// ════════════════════════════════════════════════════════════════
+// TOOL 18: HGMem Query — Multi-step RAG with Hypergraph Memory
+// ════════════════════════════════════════════════════════════════
+registerTool(
+  'foreman_hgmem_query',
+  {
+    description:
+      `Run a deep multi-step research query using HGMem (Hypergraph Memory). ` +
+      `This implements the HGMem paper (arXiv:2512.23959) — an iterative RAG loop that builds ` +
+      `a structured hypergraph of entities and relationships as working memory. ` +
+      `Unlike simple semantic search, HGMem runs multiple retrieval-and-reasoning steps, ` +
+      `refines subqueries based on what's missing, and merges overlapping findings. ` +
+      `Best for complex questions that require connecting information across multiple knowledge documents. ` +
+      `The query runs against the Foreman knowledge base. Use foreman_hgmem_status to check progress.`,
+    inputSchema: {
+      query: z.string().describe('The research question to investigate. Be specific and detailed.'),
+      project: z.string().describe('Project name to scope the query. Use "default" for general queries.'),
+      max_steps: z.string().describe('Maximum reasoning steps (1-6). Default "6". More steps = deeper analysis but slower.'),
+    },
+  },
+  async (params: any): Promise<CallToolResult> => {
+    try {
+      const body: any = {
+        query: params.query,
+        project: params.project || 'default',
+      };
+      if (params.max_steps) body.max_steps = parseInt(params.max_steps, 10);
+      const result = await callBridge('/hgmem', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const s = result.session;
+      const stats = result.stats;
+      let text = `🧠 HGMem Query Complete\n\n`;
+      text += `**Session:** ${s.id}\n`;
+      text += `**Status:** ${s.status}\n`;
+      text += `**Steps:** ${s.current_step}/${s.max_steps}\n`;
+      text += `**Memory:** ${stats?.hyperedges || 0} memory points, ${stats?.vertices || 0} entities\n\n`;
+      text += `## Response\n\n${s.response || '(no response generated)'}`;
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 19: HGMem Sessions — List & inspect sessions
+// ════════════════════════════════════════════════════════════════
+registerTool(
+  'foreman_hgmem_sessions',
+  {
+    description:
+      `List HGMem research sessions or get details of a specific session. ` +
+      `Shows session status, step count, memory point count, and the final response (if complete).`,
+    inputSchema: {
+      session_id: z.string().describe('Specific session ID to inspect. Pass empty string to list all sessions.'),
+      project: z.string().describe('Filter sessions by project name. Pass empty string for all.'),
+    },
+  },
+  async (params: any): Promise<CallToolResult> => {
+    try {
+      if (params.session_id && params.session_id.trim()) {
+        const result = await callBridge(`/hgmem/sessions/${params.session_id}`);
+        const s = result.session;
+        const stats = result.stats;
+        let text = `🧠 HGMem Session: ${s.id}\n\n`;
+        text += `**Query:** ${s.query}\n`;
+        text += `**Project:** ${s.project}\n`;
+        text += `**Status:** ${s.status}\n`;
+        text += `**Steps:** ${s.current_step}/${s.max_steps}\n`;
+        text += `**Memory:** ${stats?.hyperedges || 0} memory points, ${stats?.vertices || 0} entities\n`;
+        text += `**Created:** ${s.created_at}\n\n`;
+        if (s.response) text += `## Response\n\n${s.response}`;
+        return textResult(text);
+      } else {
+        const query = params.project?.trim() ? `?project=${encodeURIComponent(params.project)}` : '';
+        const result = await callBridge(`/hgmem/sessions${query}`);
+        if (!result.sessions?.length) return textResult('No HGMem sessions found.');
+        let text = `🧠 HGMem Sessions (${result.sessions.length}):\n\n`;
+        for (const s of result.sessions) {
+          text += `• **${s.id}** — ${s.status} (${s.steps}/${s.max_steps} steps)\n`;
+          text += `  Query: "${s.query.slice(0, 100)}"\n`;
+          text += `  Project: ${s.project} | ${s.created_at}\n\n`;
+        }
+        return textResult(text);
+      }
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════
+// TOOL 20: HGMem Memory — View hypergraph memory state
+// ════════════════════════════════════════════════════════════════
+registerTool(
+  'foreman_hgmem_memory',
+  {
+    description:
+      `View the structured hypergraph memory for an HGMem session. ` +
+      `Shows memory points (hyperedges) connecting entities (vertices) — ` +
+      `the accumulated knowledge graph built during multi-step retrieval. ` +
+      `Useful for understanding what the system learned and how information connects.`,
+    inputSchema: {
+      session_id: z.string().describe('The HGMem session ID to inspect.'),
+    },
+  },
+  async (params: any): Promise<CallToolResult> => {
+    try {
+      const result = await callBridge(`/hgmem/sessions/${params.session_id}/memory`);
+      let text = `🧠 HGMem Memory State\n\n`;
+      text += `**Vertices:** ${result.vertices}\n`;
+      text += `**Memory Points:** ${result.hyperedges}\n`;
+      text += `**Avg Order:** ${result.avg_order?.toFixed(1) || 'N/A'}\n\n`;
+      text += `## Memory\n\n${result.memory || '(empty)'}`;
+      return textResult(text);
+    } catch (error) {
+      return errorResult(error);
+    }
+  }
+);
+
 // ── Start Transport ────────────────────────────────────────────
 const transport = new StdioServerTransport();
 server.connect(transport).then(() => {
   console.error('🚀 Foreman MCP Server v0.2.0 started');
   console.error(`📡 Bridge: ${BRIDGE_URL}`);
-  console.error(`🔧 Tools: 17 registered`);
+  console.error(`🔧 Tools: 20 registered`);
 });
 

@@ -13,6 +13,8 @@ import { KnowledgeService } from './services/knowledge.js';
 import { DagExecutor } from './dag-executor.js';
 import { generateDagFromBrief } from './planner.js';
 import { configRouter, initConfigService, configService } from './routes/config.js';
+import { HGMemEngine, loadHGMemSessions, saveHGMemSessions } from './hgmem/index.js';
+import { createHGMemRoutes } from './routes/hgmem.js';
 
 /**
  * Bridge Backend - Integrates WebSocket, QC Runner, and Kanban Coordinator
@@ -472,6 +474,18 @@ dagExecutor.on('dag:node:completed', (e) => wsManager.broadcast({ type: 'dag:nod
 dagExecutor.on('dag:node:failed', (e) => wsManager.broadcast({ type: 'dag:node:failed', dagId: e.dag.id, node: e.node }));
 dagExecutor.on('dag:node:waiting_approval', (e) => wsManager.broadcast({ type: 'dag:node:waiting_approval', dagId: e.dag.id, node: e.node }));
 dagExecutor.on('dag:node:added', (e) => wsManager.broadcast({ type: 'dag:node:added', dagId: e.dag.id, node: e.node, edges: e.edges }));
+
+// Mount HGMem routes
+const hgmemEngine = new HGMemEngine(knowledgeService);
+loadHGMemSessions(hgmemEngine);
+const hgmemRouter = createHGMemRoutes(hgmemEngine);
+app.route('/hgmem', hgmemRouter);
+
+// Wire HGMem events to WebSocket
+hgmemEngine.on('session:created', (s) => wsManager.broadcast({ type: 'hgmem:session:created', session: s }));
+hgmemEngine.on('session:completed', (s) => wsManager.broadcast({ type: 'hgmem:session:completed', session: s }));
+hgmemEngine.on('session:step:start', (e) => wsManager.broadcast({ type: 'hgmem:step:start', ...e }));
+hgmemEngine.on('session:step:end', (e) => wsManager.broadcast({ type: 'hgmem:step:end', ...e }));
 
 // Mount Config routes
 app.route('/config', configRouter);

@@ -159,6 +159,13 @@ class BridgeAPI {
       method: 'DELETE',
     });
   }
+
+  // Delete a task
+  async deleteTask(id: string): Promise<{ success: boolean; message: string }> {
+    return this.fetch<{ success: boolean; message: string }>(`/tasks/${id}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 // Export singleton instance

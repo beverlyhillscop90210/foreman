@@ -126,3 +126,17 @@ tasksRouter.get('/', async (c) => {
   return c.json({ tasks });
 });
 
+// DELETE /tasks/:id - Delete a task
+tasksRouter.delete('/:id', async (c) => {
+  const id = c.req.param('id');
+  const task = await taskManager.getTask(id);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+  if (task.status === 'running') {
+    return c.json({ error: 'Cannot delete a running task' }, 400);
+  }
+  taskManager.deleteTask(id);
+  return c.json({ success: true, message: `Task ${id} deleted` });
+});
+

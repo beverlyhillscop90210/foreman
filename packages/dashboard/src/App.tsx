@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { KanbanPage } from './pages/KanbanPage';
 import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
+import HGMemPage from './pages/HGMemPage';
 import { useTerminalStore } from './stores/terminalStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useChatStore } from './stores/chatStore';
@@ -110,6 +111,7 @@ function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/kanban" element={<KanbanPage />} />
           <Route path="/knowledge" element={<KnowledgePage />} />
+          <Route path="/hgmem" element={<HGMemPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
