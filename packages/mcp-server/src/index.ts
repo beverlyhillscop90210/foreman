@@ -83,10 +83,14 @@ const server = new McpServer(
   { capabilities: {} }
 );
 
+// Helper to bypass TS2589 deep type instantiation in MCP SDK generics
+const registerTool = (name: string, config: any, handler: any) =>
+  (server as any).registerTool(name, config, handler);
+
 // ════════════════════════════════════════════════════════════════
 // TOOL 1: Initialize Project
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_init_project',
   {
     description:
@@ -97,17 +101,20 @@ server.registerTool(
       `After this, use the returned project name as the "project" parameter in other tools.`,
     inputSchema: {
       name: z.string().describe('Project name (used as directory name and optionally GitHub repo name). Use kebab-case, e.g. "dgx-spark-training"'),
-      description: z.string().optional().describe('Project description for README and GitHub repo'),
-      github_repo: z.string().optional().describe('GitHub repo name, or "true" to use project name, or "false" to skip. Defaults to creating a repo with the project name.'),
-      github_org: z.string().optional().describe('GitHub organization to create the repo under (omit for personal account)'),
+      description: z.string().describe('Project description for README and GitHub repo. Pass empty string to skip.'),
+      github_repo: z.string().describe('GitHub repo name, or "true" to use project name, or "false" to skip. Defaults to "true".'),
+      github_org: z.string().describe('GitHub organization to create the repo under. Pass empty string for personal account.'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const body: any = { ...params };
       // Convert string github_repo to boolean/string for bridge
       if (body.github_repo === 'false') body.github_repo = false;
-      else if (body.github_repo === 'true' || !body.github_repo) body.github_repo = true;
+      else if (body.github_repo === 'true' || !body.github_repo || !body.github_repo.trim()) body.github_repo = true;
+      // Clean up empty strings
+      if (!body.description || !body.description.trim()) delete body.description;
+      if (!body.github_org || !body.github_org.trim()) delete body.github_org;
       const result = await callBridge('/projects/init', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -129,7 +136,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 2: Create Task
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_create_task',
   {
     description:
@@ -146,27 +153,29 @@ server.registerTool(
         'Detailed task description. Write this like a thorough spec: what to build, acceptance criteria, ' +
         'technical requirements, file structure. The agent has NO prior context — everything it needs to know must be here.'
       ),
-      allowed_files: z.string().optional().describe(
-        'Comma-separated glob patterns for files the agent CAN modify (e.g. "src/**,tests/**"). Defaults to all files.'
+      allowed_files: z.string().describe(
+        'Comma-separated glob patterns for files the agent CAN modify (e.g. "src/**,tests/**"). Use "**/*" for all files.'
       ),
-      blocked_files: z.string().optional().describe(
-        'Comma-separated glob patterns for files the agent must NOT touch (takes precedence over allowed_files).'
+      blocked_files: z.string().describe(
+        'Comma-separated glob patterns for files the agent must NOT touch. Pass empty string if none.'
       ),
-      role: z.string().optional().describe(
+      role: z.string().describe(
         'Agent role ID from foreman_list_roles (e.g. "implementer", "backend-architect"). ' +
-        'Determines the agent\'s system prompt and expertise. Defaults to none (general purpose).'
+        'Pass empty string for general purpose.'
       ),
-      agent: z.string().optional().describe('AI agent runtime: "claude-code" (default) or "augment"'),
+      agent: z.string().describe('AI agent runtime: "claude-code" (default) or "augment"'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const body: any = { ...params };
-      // Convert comma-sep strings to arrays
-      if (body.allowed_files) body.allowed_files = body.allowed_files.split(',').map((s: string) => s.trim());
+      // Convert comma-sep strings to arrays, handle empty strings
+      if (body.allowed_files && body.allowed_files.trim()) body.allowed_files = body.allowed_files.split(',').map((s: string) => s.trim());
       else body.allowed_files = ['**/*'];
-      if (body.blocked_files) body.blocked_files = body.blocked_files.split(',').map((s: string) => s.trim());
-      if (!body.agent) body.agent = 'claude-code';
+      if (body.blocked_files && body.blocked_files.trim()) body.blocked_files = body.blocked_files.split(',').map((s: string) => s.trim());
+      else delete body.blocked_files;
+      if (!body.role || !body.role.trim()) delete body.role;
+      if (!body.agent || !body.agent.trim()) body.agent = 'claude-code';
       const result = await callBridge('/tasks', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -192,7 +201,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 3: Task Status
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_task_status',
   {
     description:
@@ -205,7 +214,7 @@ server.registerTool(
       task_id: z.string().describe('Task ID returned from foreman_create_task'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const result = await callBridge(`/tasks/${params.task_id}`);
       const task = result.task || result;
@@ -248,7 +257,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 4: Get Diff
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_get_diff',
   {
     description:
@@ -259,7 +268,7 @@ server.registerTool(
       task_id: z.string().describe('Task ID'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const result = await callBridge(`/tasks/${params.task_id}/diff`);
       if (!result.diff || result.diff.trim() === '') {
@@ -278,16 +287,16 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 5: Approve Task
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_approve',
   {
     description: 'Approve and commit the changes from a completed task.',
     inputSchema: {
       task_id: z.string().describe('Task ID'),
-      push: z.string().optional().describe('"true" (default) to push to remote GitHub after committing, "false" to skip push'),
+      push: z.string().describe('"true" (default) to push to remote GitHub after committing, "false" to skip push'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const push = params.push !== 'false';
       const result = await callBridge(`/tasks/${params.task_id}/approve`, {
@@ -304,25 +313,25 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 6: Reject Task
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_reject',
   {
     description: 'Reject a completed task\'s changes and optionally retry with feedback.',
     inputSchema: {
       task_id: z.string().describe('Task ID'),
-      feedback: z.string().optional().describe('What was wrong and what to do differently'),
-      retry: z.boolean().optional().default(false).describe('Automatically retry the task with the feedback incorporated'),
+      feedback: z.string().describe('What was wrong and what to do differently. Pass empty string if no feedback.'),
+      retry: z.string().describe('"true" to automatically retry the task with feedback, "false" (default) to just reject'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       await callBridge(`/tasks/${params.task_id}/reject`, {
         method: 'POST',
-        body: JSON.stringify({ feedback: params.feedback, retry: params.retry }),
+        body: JSON.stringify({ feedback: params.feedback || undefined, retry: params.retry === 'true' }),
       });
       let text = `❌ Task rejected.`;
       if (params.feedback) text += `\nFeedback: ${params.feedback}`;
-      if (params.retry) text += `\n🔄 Retrying with feedback.`;
+      if (params.retry === 'true') text += `\n🔄 Retrying with feedback.`;
       return textResult(text);
     } catch (error) {
       return errorResult(error);
@@ -333,7 +342,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 7: Delete Task
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_delete_task',
   {
     description: 'Delete a task (and kill its running agent process if active). Use foreman_delete_all_tasks to clear everything.',
@@ -341,7 +350,7 @@ server.registerTool(
       task_id: z.string().describe('Task ID to delete'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       await callBridge(`/tasks/${params.task_id}`, { method: 'DELETE' });
       return textResult(`🗑️ Task ${params.task_id} deleted.`);
@@ -354,7 +363,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 8: Delete All Tasks
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_delete_all_tasks',
   {
     description: 'Delete ALL tasks and kill any running agent processes. Use with caution.',
@@ -373,7 +382,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 9: Plan DAG
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_plan',
   {
     description:
@@ -388,15 +397,19 @@ server.registerTool(
         'High-level description of what needs to be built. Be thorough: include goals, tech stack, ' +
         'architecture, constraints, acceptance criteria. The planner will decompose this into parallel/sequential tasks.'
       ),
-      context: z.string().optional().describe('Additional context such as existing codebase info, API specs, or architecture diagrams'),
-      auto_create: z.boolean().optional().default(true).describe('true = create the DAG immediately, false = just return the plan for review'),
+      context: z.string().describe('Additional context such as existing codebase info, API specs, or architecture diagrams. Pass empty string if none.'),
+      auto_create: z.string().describe('"true" (default) to create the DAG immediately, "false" to just return the plan for review'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
+      const body: any = { ...params };
+      // Convert string params to proper types for bridge
+      body.auto_create = params.auto_create !== 'false';
+      if (!body.context || !body.context.trim()) delete body.context;
       const result = await callBridge('/dags/plan', {
         method: 'POST',
-        body: JSON.stringify(params),
+        body: JSON.stringify(body),
       });
 
       if (result.dag) {
@@ -429,7 +442,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 10: Create DAG (manual)
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_create_dag',
   {
     description:
@@ -440,15 +453,15 @@ server.registerTool(
       name: z.string().describe('DAG name'),
       description: z.string().describe('What this DAG accomplishes'),
       project: z.string().describe('Project name'),
-      created_by: z.string().optional().describe('"planner" or "manual" (default: "manual")'),
-      approval_mode: z.string().optional().describe('"per_task", "end_only", or "gate_configured" (default). Controls when approval gates trigger.'),
+      created_by: z.string().describe('"planner" or "manual" (default: "manual")'),
+      approval_mode: z.string().describe('"per_task", "end_only", or "gate_configured" (default). Controls when approval gates trigger.'),
       nodes: z.string().describe(
         'JSON string of node array: [{ id, title, type ("task"|"gate"), briefing, role, allowed_files?, blocked_files?, gate_condition? }]'
       ),
       edges: z.string().describe('JSON string of edge array: [{ from: "node_id", to: "node_id" }]'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const body: any = {
         name: params.name,
@@ -479,7 +492,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 11: Execute DAG
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_execute_dag',
   {
     description:
@@ -491,7 +504,7 @@ server.registerTool(
       dag_id: z.string().describe('DAG ID from foreman_plan or foreman_create_dag'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const dag = await callBridge(`/dags/${params.dag_id}/execute`, { method: 'POST' });
       return textResult(
@@ -510,7 +523,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 12: DAG Status
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_dag_status',
   {
     description:
@@ -523,7 +536,7 @@ server.registerTool(
       dag_id: z.string().describe('DAG ID'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       const dag = await callBridge(`/dags/${params.dag_id}`);
 
@@ -587,7 +600,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 13: Approve Gate
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_approve_gate',
   {
     description:
@@ -599,7 +612,7 @@ server.registerTool(
       node_id: z.string().describe('Gate node ID (from foreman_dag_status)'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       await callBridge(`/dags/${params.dag_id}/nodes/${params.node_id}/approve`, { method: 'POST' });
       return textResult(`✅ Gate "${params.node_id}" approved. DAG execution continues.`);
@@ -612,7 +625,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 14: Delete DAG
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_delete_dag',
   {
     description: 'Delete a DAG workflow.',
@@ -620,7 +633,7 @@ server.registerTool(
       dag_id: z.string().describe('DAG ID to delete'),
     },
   },
-  async (params): Promise<CallToolResult> => {
+  async (params: any): Promise<CallToolResult> => {
     try {
       await callBridge(`/dags/${params.dag_id}`, { method: 'DELETE' });
       return textResult(`🗑️ DAG ${params.dag_id} deleted.`);
@@ -633,7 +646,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 15: List Tasks
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_list_tasks',
   {
     description: 'List all tasks in the system with their current status.',
@@ -661,7 +674,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 16: List DAGs
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_list_dags',
   {
     description: 'List all DAG workflows with their current status.',
@@ -689,7 +702,7 @@ server.registerTool(
 // ════════════════════════════════════════════════════════════════
 // TOOL 17: List Roles
 // ════════════════════════════════════════════════════════════════
-server.registerTool(
+registerTool(
   'foreman_list_roles',
   {
     description:
