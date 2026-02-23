@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useDagStore, type Dag, type DagNode } from '../stores/dagStore';
+import { useDagStore, type Dag } from '../stores/dagStore';
 import { DagFlowGraph, NodeDetailPanel } from '../components/dag/DagFlowGraph';
 import { PlannerDialog } from '../components/dag/PlannerDialog';
 import { wsClient } from '../lib/ws';
