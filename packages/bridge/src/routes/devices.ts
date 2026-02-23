@@ -274,7 +274,7 @@ echo ""
     ? `# Step 1: Install cloudflared
 echo "▸ Installing cloudflared via Homebrew..."
 if ! command -v cloudflared &> /dev/null; then
-  brew install cloudflared
+  HOMEBREW_NO_AUTO_UPDATE=1 brew install cloudflared </dev/null
   echo "  ✓ cloudflared installed"
 else
   echo "  ✓ cloudflared already installed"
@@ -283,13 +283,13 @@ fi
     : os === 'docker'
     ? `# Step 1: cloudflared will run in Docker
 echo "▸ Pulling cloudflared Docker image..."
-docker pull cloudflare/cloudflared:latest
+docker pull cloudflare/cloudflared:latest </dev/null
 echo "  ✓ cloudflared image ready"
 `
     : `# Step 1: Install cloudflared
 echo "▸ Installing cloudflared..."
 if ! command -v cloudflared &> /dev/null; then
-  curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+  curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared </dev/null
   chmod +x /usr/local/bin/cloudflared
   echo "  ✓ cloudflared installed"
 else
@@ -308,8 +308,9 @@ echo "  ✓ Tunnel running in container 'foreman-tunnel'"
       : os === 'macos'
       ? `# Step 2: Start Cloudflare Tunnel
 echo "▸ Starting Cloudflare Tunnel..."
-cloudflared tunnel run --token ${cfTunnelToken} &
+cloudflared tunnel run --token ${cfTunnelToken} </dev/null &
 TUNNEL_PID=$!
+sleep 2
 echo "  ✓ Tunnel running (PID: $TUNNEL_PID)"
 echo ""
 echo "  To run as a persistent service:"

@@ -69,7 +69,7 @@ function SetupTerminal({
   const bridgeUrl = import.meta.env.VITE_BRIDGE_URL || 'https://foreman.beverlyhillscop.io';
 
   // Build the one-liner setup command
-  const setupCommand = `curl -sfL "${bridgeUrl}/devices/${device.id}/setup-script?os=${os}" | DEVICE_TOKEN="${token}" bash`;
+  const setupCommand = `curl -sfL "${bridgeUrl}/devices/${device.id}/setup-script?os=${os}" -o /tmp/foreman-setup.sh && DEVICE_TOKEN="${token}" bash /tmp/foreman-setup.sh`;
 
   // The manual steps (for display in the terminal)
   const manualSteps = [
