@@ -25,6 +25,28 @@ export function createDeviceRoutes(
     return c.json({ devices: filtered });
   });
 
+  // ── Aggregate Ollama models from all online devices ────────
+  router.get('/ollama-models', (c) => {
+    const onlineDevices = registry.getOnlineDevices();
+    const ollamaModels: { model: string; device_id: string; device_name: string; tunnel_hostname?: string }[] = [];
+
+    for (const device of onlineDevices) {
+      const ollama = device.capabilities?.ollama;
+      if (ollama?.models?.length) {
+        for (const model of ollama.models) {
+          ollamaModels.push({
+            model,
+            device_id: device.id,
+            device_name: device.name,
+            tunnel_hostname: device.tunnel_hostname,
+          });
+        }
+      }
+    }
+
+    return c.json({ models: ollamaModels });
+  });
+
   // ── Get single device ────────────────────────────────────────
   router.get('/:id', (c) => {
     const device = registry.getDevice(c.req.param('id'));

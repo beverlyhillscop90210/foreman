@@ -187,6 +187,7 @@ export const SettingsPage = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<{id: string, name: string}[]>([]);
+  const [ollamaModels, setOllamaModels] = useState<{model: string, device_id: string, device_name: string}[]>([]);
   const toast = useToast();
 
   // Load settings on mount
@@ -205,12 +206,18 @@ export const SettingsPage = () => {
       .then(res => res.json())
       .then(data => {
         if (data.data) {
-          // Sort by name and take the most relevant ones or just all
           const models = data.data.map((m: any) => ({ id: m.id, name: m.name }));
           setOpenRouterModels(models);
         }
       })
       .catch(err => console.error('Failed to fetch OpenRouter models:', err));
+
+    // Fetch Ollama models from connected devices
+    api.fetch<{ models: { model: string; device_id: string; device_name: string }[] }>('/devices/ollama-models')
+      .then(data => {
+        if (data.models) setOllamaModels(data.models);
+      })
+      .catch(err => console.error('Failed to fetch Ollama models:', err));
   }, []);
 
   // Determine user role
@@ -586,6 +593,16 @@ export const SettingsPage = () => {
                             </>
                           )}
                         </optgroup>
+                        {ollamaModels.length > 0 && (
+                          <optgroup label="Ollama (Local)">
+                            {/* Dedupe models across devices, show device name */}
+                            {ollamaModels.map((m, i) => (
+                              <option key={`ollama-${m.device_id}-${m.model}-${i}`} value={`ollama:${m.device_id}:${m.model}`}>
+                                {m.model} — {m.device_name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
 
