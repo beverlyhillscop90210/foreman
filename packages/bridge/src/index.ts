@@ -21,6 +21,7 @@ import { createDeviceRoutes } from './routes/devices.js';
 import { createLogger } from './logger.js';
 import { createSettingsRoutes } from './routes/settings.js';
 import { createDeviceTaskRoutes } from './routes/device-tasks.js';
+import { deviceTaskQueue } from './services/device-task-queue.js';
 
 const log = createLogger('server');
 
@@ -60,14 +61,36 @@ taskRunner.knowledgeLoader = async (query: string): Promise<string> => {
   }
 };
 
+// Load device task queue from disk first so we can check for recoverable tasks
+deviceTaskQueue.load();
+
 // Clean up stale tasks left in 'running' state from previous process
 for (const task of taskManager.getTasks()) {
   if (task.status === 'running' || task.status === 'pending') {
-    log.warn('Cleaning up stale task from previous run', { taskId: task.id, title: task.title, was: task.status });
-    taskManager.updateTaskStatus(task.id, 'failed', {
-      agent_output: 'Task was interrupted by bridge restart',
-      completed_at: new Date().toISOString(),
-    });
+    const dt = deviceTaskQueue.getByTaskId(task.id);
+    if (dt && dt.status === 'pending') {
+      // The device task was reset to pending on load — wait for the device to re-pick it
+      log.info('Recovering task: device task is pending, will resume when device picks up', { taskId: task.id, dtId: dt.id });
+      deviceTaskQueue.waitForCompletion(dt.id).then((completedDt) => {
+        taskManager.updateTaskStatus(task.id, 'completed', {
+          agent_output: completedDt.output || '',
+          completed_at: new Date().toISOString(),
+        });
+        log.info('Recovered task completed via device queue', { taskId: task.id, dtId: dt.id });
+      }).catch((err) => {
+        taskManager.updateTaskStatus(task.id, 'failed', {
+          agent_output: err.message,
+          completed_at: new Date().toISOString(),
+        });
+        log.warn('Recovered task failed via device queue', { taskId: task.id, error: err.message });
+      });
+    } else {
+      log.warn('Cleaning up stale task from previous run', { taskId: task.id, title: task.title, was: task.status });
+      taskManager.updateTaskStatus(task.id, 'failed', {
+        agent_output: 'Task was interrupted by bridge restart',
+        completed_at: new Date().toISOString(),
+      });
+    }
   }
 }
 

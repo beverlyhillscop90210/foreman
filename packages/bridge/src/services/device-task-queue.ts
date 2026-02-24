@@ -1,7 +1,10 @@
 import { EventEmitter } from 'events';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('device-task-queue');
+const DATA_FILE = process.env.DEVICE_TASKS_FILE || '/home/foreman/data/device-tasks.json';
 
 export interface DeviceTask {
   id: string;
@@ -24,6 +27,40 @@ class DeviceTaskQueue extends EventEmitter {
     return Math.random().toString(36).slice(2, 11);
   }
 
+  /** Load persisted tasks from disk. Resets any in-flight 'running' tasks back to 'pending' so the device can re-pick them. */
+  load(): void {
+    try {
+      const raw = readFileSync(DATA_FILE, 'utf8');
+      const arr: DeviceTask[] = JSON.parse(raw);
+      this.tasks.clear();
+      let reset = 0;
+      for (const dt of arr) {
+        // Keep only tasks that haven't finished — no need to replay completed/failed
+        if (dt.status === 'completed' || dt.status === 'failed') continue;
+        // Running tasks lost their executor — reset to pending so device re-picks them
+        if (dt.status === 'running') {
+          dt.status = 'pending';
+          dt.picked_at = undefined;
+          reset++;
+        }
+        this.tasks.set(dt.id, dt);
+      }
+      log.info('Device task queue loaded', { total: arr.length, active: this.tasks.size, reset });
+    } catch {
+      // File doesn't exist yet — start fresh
+    }
+  }
+
+  private save(): void {
+    try {
+      const arr = Array.from(this.tasks.values());
+      mkdirSync(dirname(DATA_FILE), { recursive: true });
+      writeFileSync(DATA_FILE, JSON.stringify(arr, null, 2));
+    } catch (e) {
+      log.warn('Failed to persist device task queue', { error: String(e) });
+    }
+  }
+
   /** Enqueue a task for a specific device */
   enqueue(params: { taskId: string; deviceId: string; model: string; prompt: string }): DeviceTask {
     const dt: DeviceTask = {
@@ -33,6 +70,7 @@ class DeviceTaskQueue extends EventEmitter {
       created_at: new Date().toISOString(),
     };
     this.tasks.set(dt.id, dt);
+    this.save();
     log.info('Device task enqueued', { dtId: dt.id, taskId: params.taskId, deviceId: params.deviceId, model: params.model });
     return dt;
   }
@@ -48,6 +86,7 @@ class DeviceTaskQueue extends EventEmitter {
     if (!dt) return null;
     dt.status = 'running';
     dt.picked_at = new Date().toISOString();
+    this.save();
     return dt;
   }
 
@@ -58,6 +97,7 @@ class DeviceTaskQueue extends EventEmitter {
     dt.status = 'completed';
     dt.completed_at = new Date().toISOString();
     dt.output = output;
+    this.save();
     this.emit('task:completed', dt);
     log.info('Device task completed', { dtId, taskId: dt.taskId });
     return dt;
@@ -69,6 +109,7 @@ class DeviceTaskQueue extends EventEmitter {
     dt.status = 'failed';
     dt.completed_at = new Date().toISOString();
     dt.error = error;
+    this.save();
     this.emit('task:failed', dt);
     log.warn('Device task failed', { dtId, taskId: dt.taskId, error });
     return dt;
