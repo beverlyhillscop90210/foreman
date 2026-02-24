@@ -367,28 +367,12 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
 
 // ── Reconnect Modal ──────────────────────────────────────────────
 function ReconnectModal({ device, onClose }: { device: Device; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const { fetchDevices, devices } = useDevicesStore();
   const [reconnected, setReconnected] = useState(false);
-  const [tunnelCmd, setTunnelCmd] = useState<string | null>(null);
-  const [serviceCmd, setServiceCmd] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
-  // Fetch reconnect command from bridge
-  useEffect(() => {
-    api.fetch<{ command?: string; service_install?: string; error?: string }>(`/devices/${device.id}/reconnect`)
-      .then(data => {
-        if (data.command) {
-          setTunnelCmd(data.command);
-          setServiceCmd(data.service_install || null);
-        } else {
-          setError(data.error || 'No tunnel configured');
-        }
-      })
-      .catch(err => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, [device.id]);
+  const bridgeUrl = import.meta.env.VITE_BRIDGE_URL || 'https://foreman.beverlyhillscop.io';
 
   // Poll for device to come back online
   useEffect(() => {
@@ -403,17 +387,43 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
     if (dev?.status === 'online') setReconnected(true);
   }, [devices, device.id]);
 
-  const handleCopy = () => {
-    if (tunnelCmd) {
-      navigator.clipboard.writeText(tunnelCmd);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  // Send heartbeat from the dashboard to mark device online
+  const handleReconnect = async () => {
+    setSending(true);
+    try {
+      await api.fetch(`/devices/${device.id}/heartbeat`, {
+        method: 'POST',
+        body: JSON.stringify({
+          capabilities: device.capabilities || {},
+        }),
+      });
+      await fetchDevices();
+    } catch (err) {
+      console.error('Heartbeat failed:', err);
+    } finally {
+      setSending(false);
     }
   };
 
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  // Heartbeat keep-alive script for the device to run
+  const heartbeatScript = `# Run on the device to keep it online (sends heartbeat every 60s)
+while true; do
+  curl -sf -X POST "${bridgeUrl}/devices/${device.id}/heartbeat" \\
+    -H "Content-Type: application/json" \\
+    -H "Authorization: Bearer \${FOREMAN_TOKEN}" \\
+    -d '{}' > /dev/null 2>&1 && echo "[$(date)] heartbeat ok" || echo "[$(date)] heartbeat failed"
+  sleep 60
+done`;
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-foreman-bg-deep border border-foreman-border w-full max-w-2xl shadow-2xl">
+      <div className="bg-foreman-bg-deep border border-foreman-border w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-foreman-border bg-foreman-bg-dark">
           <div className="flex items-center gap-3">
@@ -421,7 +431,7 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
             <div>
               <h3 className="font-mono text-sm text-foreman-orange">{device.name}</h3>
               <span className="font-sans text-xs text-foreman-text opacity-60">
-                Reconnect via Cloudflare Tunnel
+                Reconnect Device
               </span>
             </div>
           </div>
@@ -444,51 +454,54 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
         )}
 
         {/* Content */}
-        <div className="p-5 space-y-5">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="font-mono text-sm text-foreman-text opacity-60 animate-pulse">
-                Loading reconnect info...
-              </span>
-            </div>
-          ) : tunnelCmd ? (
-            <>
-              <div>
-                <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
-                  Run this on {device.name} to reconnect
-                </label>
-                <div className="relative group">
-                  <pre className="bg-black border border-foreman-border p-4 font-mono text-sm text-green-400 overflow-x-auto whitespace-pre-wrap select-all">
-                    <span className="text-zinc-500">$ </span>
-                    {tunnelCmd}
-                  </pre>
-                  <button
-                    onClick={handleCopy}
-                    className={`absolute top-2 right-2 px-3 py-1 font-mono text-xs border transition-colors ${
-                      copied
-                        ? 'bg-green-900/50 border-green-600 text-green-400'
-                        : 'bg-foreman-bg-dark border-foreman-border text-foreman-text hover:border-foreman-orange opacity-0 group-hover:opacity-100'
-                    }`}
-                  >
-                    {copied ? '✓ Copied' : 'Copy'}
-                  </button>
-                </div>
-              </div>
-
-              {serviceCmd && (
-                <div className="font-sans text-xs text-foreman-text opacity-50 space-y-1">
-                  <p>To install as a persistent service instead:</p>
-                  <pre className="bg-foreman-bg-dark border border-foreman-border p-2 font-mono text-[11px] text-foreman-text opacity-70 select-all">
-                    {serviceCmd}
-                  </pre>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="bg-yellow-900/20 border border-yellow-700 px-4 py-3 font-mono text-sm text-yellow-400">
-              {error || 'No tunnel token available.'} You may need to delete and re-add this device.
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Quick Reconnect Button */}
+          {!reconnected && (
+            <div className="bg-foreman-bg-dark border border-foreman-border p-4">
+              <p className="font-sans text-xs text-foreman-text opacity-70 mb-3">
+                If the device is reachable, click to mark it online immediately:
+              </p>
+              <button
+                onClick={handleReconnect}
+                disabled={sending}
+                className="bg-foreman-orange text-white font-mono text-sm px-5 py-2 hover:bg-opacity-90
+                           disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {sending ? (
+                  <>
+                    <span className="animate-spin">⟳</span> Sending heartbeat...
+                  </>
+                ) : (
+                  <>⚡ Reconnect Now</>
+                )}
+              </button>
             </div>
           )}
+
+          {/* Heartbeat Script */}
+          <div>
+            <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
+              Keep-alive script (run on device)
+            </label>
+            <div className="relative group">
+              <pre className="bg-black border border-foreman-border p-4 font-mono text-[12px] text-green-400 overflow-x-auto whitespace-pre-wrap select-all leading-relaxed">
+                {heartbeatScript}
+              </pre>
+              <button
+                onClick={() => handleCopy(heartbeatScript, 'heartbeat')}
+                className={`absolute top-2 right-2 px-3 py-1 font-mono text-xs border transition-colors ${
+                  copied === 'heartbeat'
+                    ? 'bg-green-900/50 border-green-600 text-green-400'
+                    : 'bg-foreman-bg-dark border-foreman-border text-foreman-text hover:border-foreman-orange opacity-0 group-hover:opacity-100'
+                }`}
+              >
+                {copied === 'heartbeat' ? '✓ Copied' : 'Copy'}
+              </button>
+            </div>
+            <p className="font-sans text-xs text-foreman-text opacity-40 mt-1">
+              This sends a heartbeat every 60 seconds to keep the device marked as online.
+            </p>
+          </div>
 
           {/* Status */}
           <div className="bg-foreman-bg-dark border border-foreman-border p-4">
@@ -496,13 +509,13 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
               {reconnected ? (
                 <>
                   <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span className="font-mono text-sm text-green-400">Connected</span>
+                  <span className="font-mono text-sm text-green-400">Online</span>
                 </>
               ) : (
                 <>
                   <div className="w-3 h-3 rounded-full bg-yellow-500 animate-pulse" />
                   <span className="font-mono text-sm text-yellow-400">
-                    Waiting for device to reconnect...
+                    Waiting for device...
                   </span>
                 </>
               )}
