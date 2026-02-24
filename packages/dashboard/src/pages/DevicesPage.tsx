@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useDevicesStore, type Device, type DeviceType } from '../stores/devicesStore';
+import { api } from '../lib/api';
 
 // ── Device Type Labels ───────────────────────────────────────────
 const TYPE_LABELS: Record<DeviceType, string> = {
@@ -368,6 +369,25 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
   const [copied, setCopied] = useState(false);
   const { fetchDevices, devices } = useDevicesStore();
   const [reconnected, setReconnected] = useState(false);
+  const [tunnelCmd, setTunnelCmd] = useState<string | null>(null);
+  const [serviceCmd, setServiceCmd] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch reconnect command from bridge
+  useEffect(() => {
+    api.fetch<{ command?: string; service_install?: string; error?: string }>(`/devices/${device.id}/reconnect`)
+      .then(data => {
+        if (data.command) {
+          setTunnelCmd(data.command);
+          setServiceCmd(data.service_install || null);
+        } else {
+          setError(data.error || 'No tunnel configured');
+        }
+      })
+      .catch(err => setError(String(err)))
+      .finally(() => setLoading(false));
+  }, [device.id]);
 
   // Poll for device to come back online
   useEffect(() => {
@@ -381,10 +401,6 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
     const dev = devices.find((d) => d.id === device.id);
     if (dev?.status === 'online') setReconnected(true);
   }, [devices, device.id]);
-
-  const tunnelCmd = device.tunnel_token
-    ? `cloudflared tunnel run --token ${device.tunnel_token}`
-    : null;
 
   const handleCopy = () => {
     if (tunnelCmd) {
@@ -428,7 +444,13 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
 
         {/* Content */}
         <div className="p-5 space-y-5">
-          {tunnelCmd ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <span className="font-mono text-sm text-foreman-text opacity-60 animate-pulse">
+                Loading reconnect info...
+              </span>
+            </div>
+          ) : tunnelCmd ? (
             <>
               <div>
                 <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
@@ -452,16 +474,18 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
                 </div>
               </div>
 
-              <div className="font-sans text-xs text-foreman-text opacity-50 space-y-1">
-                <p>To install as a persistent service instead:</p>
-                <pre className="bg-foreman-bg-dark border border-foreman-border p-2 font-mono text-[11px] text-foreman-text opacity-70 select-all">
-                  sudo cloudflared service install {device.tunnel_token}
-                </pre>
-              </div>
+              {serviceCmd && (
+                <div className="font-sans text-xs text-foreman-text opacity-50 space-y-1">
+                  <p>To install as a persistent service instead:</p>
+                  <pre className="bg-foreman-bg-dark border border-foreman-border p-2 font-mono text-[11px] text-foreman-text opacity-70 select-all">
+                    {serviceCmd}
+                  </pre>
+                </div>
+              )}
             </>
           ) : (
             <div className="bg-yellow-900/20 border border-yellow-700 px-4 py-3 font-mono text-sm text-yellow-400">
-              No tunnel token available for this device. You may need to delete and re-add it.
+              {error || 'No tunnel token available.'} You may need to delete and re-add this device.
             </div>
           )}
 

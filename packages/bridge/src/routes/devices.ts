@@ -208,6 +208,27 @@ export function createDeviceRoutes(
     return c.json({ error: 'Use DELETE + POST to regenerate device' }, 501);
   });
 
+  // ── Reconnect info (returns tunnel command for an offline device) ──
+  router.get('/:id/reconnect', (c) => {
+    const device = registry.getDevice(c.req.param('id'));
+    if (!device) return c.json({ error: 'Device not found' }, 404);
+
+    // Use per-device tunnel_token if available, otherwise fall back to global CF_TUNNEL_TOKEN
+    const tunnelToken = device.tunnel_token || process.env.CF_TUNNEL_TOKEN || '';
+
+    if (!tunnelToken) {
+      return c.json({ error: 'No tunnel token available', command: null }, 200);
+    }
+
+    return c.json({
+      command: `cloudflared tunnel run --token ${tunnelToken}`,
+      service_install: `sudo cloudflared service install ${tunnelToken}`,
+      tunnel_token: tunnelToken,
+      device_name: device.name,
+      device_id: device.id,
+    });
+  });
+
   // ── Setup script (returns shell script for given OS) ─────────
   router.get('/:id/setup-script', (c) => {
     const device = registry.getDevice(c.req.param('id'));
