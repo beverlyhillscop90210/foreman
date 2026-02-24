@@ -183,11 +183,12 @@ const AddVariableForm = ({ onAdd, onCancel }: { onAdd: (envVar: EnvVar) => void;
 
 export const SettingsPage = () => {
   const { setMaxAgents } = useTerminalStore();
-  const { envVars, agentConfig, accessControl, rolesConfig, defaultModel, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig, setDefaultModel } = useSettingsStore();
+  const { envVars, agentConfig, accessControl, rolesConfig, defaultModel, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig, setRolesConfig, setDefaultModel } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<{id: string, name: string}[]>([]);
   const [ollamaModels, setOllamaModels] = useState<{name: string, size: number}[]>([]);
+  const [bridgeRoles, setBridgeRoles] = useState<{id: string, name: string, description: string, model: string}[]>([]);
   const toast = useToast();
 
   // Load settings on mount
@@ -216,12 +217,18 @@ export const SettingsPage = () => {
     api.fetch<{ models: { model: string; device_id: string; device_name: string }[] }>('/devices/ollama-models')
       .then(data => {
         if (data.models) {
-          // Deduplicate models by name
           const uniqueModels = Array.from(new Set(data.models.map(m => m.model)));
           setOllamaModels(uniqueModels.map(name => ({ name, size: 0 })));
         }
       })
       .catch(err => console.error('Failed to fetch Ollama models:', err));
+
+    // Fetch the real agent roles from bridge (these are the actual IDs used by DAGs)
+    api.fetch<{ roles: {id: string, name: string, description: string, model: string}[] }>('/roles')
+      .then(data => {
+        if (data.roles) setBridgeRoles(data.roles);
+      })
+      .catch(err => console.error('Failed to fetch bridge roles:', err));
   }, []);
 
   // Determine user role
@@ -589,9 +596,36 @@ export const SettingsPage = () => {
                 </select>
               </div>
 
-              {rolesConfig.map((role) => (
+              {(bridgeRoles.length > 0 ? bridgeRoles : rolesConfig).map((bridgeRole) => {
+                // Find any saved model/prompt override for this role
+                const override = rolesConfig.find(r => r.id === bridgeRole.id);
+                const effectiveModel = override?.model || bridgeRole.model || '';
+                // Build a merged role object for the existing system prompt UI below
+                const role = override || {
+                  id: bridgeRole.id,
+                  name: bridgeRole.name,
+                  model: bridgeRole.model,
+                  systemPrompts: [],
+                  activePromptUserEmail: currentUserEmail || '',
+                };
+                const handleModelChange = (newModel: string) => {
+                  // Upsert into rolesConfig (merge, don't just map — entry may not exist yet)
+                  const existing = rolesConfig.find(r => r.id === bridgeRole.id);
+                  if (existing) {
+                    updateRoleConfig(bridgeRole.id, { model: newModel });
+                  } else {
+                    setRolesConfig([
+                      ...rolesConfig,
+                      { id: bridgeRole.id, name: bridgeRole.name, model: newModel, systemPrompts: [], activePromptUserEmail: currentUserEmail || '' },
+                    ]);
+                  }
+                };
+                return (
                 <div key={role.id} className="bg-foreman-bg-dark border border-foreman-border p-4">
-                  <h3 className="font-mono text-sm text-foreman-orange mb-3">{role.name}</h3>
+                  <h3 className="font-mono text-sm text-foreman-orange mb-3">
+                    {role.name}
+                    <span className="ml-2 font-sans text-[10px] text-foreman-text opacity-40 font-normal">{role.id}</span>
+                  </h3>
                   
                   <div className="grid grid-cols-1 gap-4">
                     <div>
@@ -599,8 +633,8 @@ export const SettingsPage = () => {
                         Model
                       </label>
                       <select
-                        value={role.model}
-                        onChange={(e) => updateRoleConfig(role.id, { model: e.target.value })}
+                        value={effectiveModel}
+                        onChange={(e) => handleModelChange(e.target.value)}
                         className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
                                    font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
                       >
@@ -697,7 +731,8 @@ export const SettingsPage = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
         </section>
       </div>
