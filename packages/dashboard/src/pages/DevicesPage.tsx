@@ -540,7 +540,7 @@ function DeviceRow({ device, onDelete }: { device: Device; onDelete: (id: string
           }`}>
             {device.status}
           </span>
-          {device.status === 'offline' && device.tunnel_token && (
+          {device.status === 'offline' && (
             <button
               onClick={() => setShowReconnect(true)}
               className="font-mono text-xs px-2 py-0.5 border border-foreman-orange/60
