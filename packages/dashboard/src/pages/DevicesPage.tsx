@@ -363,9 +363,150 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── Reconnect Modal ──────────────────────────────────────────────
+function ReconnectModal({ device, onClose }: { device: Device; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const { fetchDevices, devices } = useDevicesStore();
+  const [reconnected, setReconnected] = useState(false);
+
+  // Poll for device to come back online
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await fetchDevices();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [fetchDevices]);
+
+  useEffect(() => {
+    const dev = devices.find((d) => d.id === device.id);
+    if (dev?.status === 'online') setReconnected(true);
+  }, [devices, device.id]);
+
+  const tunnelCmd = device.tunnel_token
+    ? `cloudflared tunnel run --token ${device.tunnel_token}`
+    : null;
+
+  const handleCopy = () => {
+    if (tunnelCmd) {
+      navigator.clipboard.writeText(tunnelCmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-foreman-bg-deep border border-foreman-border w-full max-w-2xl shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-foreman-border bg-foreman-bg-dark">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">{TYPE_ICONS[device.type]}</span>
+            <div>
+              <h3 className="font-mono text-sm text-foreman-orange">{device.name}</h3>
+              <span className="font-sans text-xs text-foreman-text opacity-60">
+                Reconnect via Cloudflare Tunnel
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-foreman-text hover:text-foreman-orange font-mono text-lg px-2"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Success Banner */}
+        {reconnected && (
+          <div className="bg-green-900/30 border-b border-green-700 px-5 py-3 flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+            <span className="font-mono text-sm text-green-400">
+              Device is back online!
+            </span>
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="p-5 space-y-5">
+          {tunnelCmd ? (
+            <>
+              <div>
+                <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
+                  Run this on {device.name} to reconnect
+                </label>
+                <div className="relative group">
+                  <pre className="bg-black border border-foreman-border p-4 font-mono text-sm text-green-400 overflow-x-auto whitespace-pre-wrap select-all">
+                    <span className="text-zinc-500">$ </span>
+                    {tunnelCmd}
+                  </pre>
+                  <button
+                    onClick={handleCopy}
+                    className={`absolute top-2 right-2 px-3 py-1 font-mono text-xs border transition-colors ${
+                      copied
+                        ? 'bg-green-900/50 border-green-600 text-green-400'
+                        : 'bg-foreman-bg-dark border-foreman-border text-foreman-text hover:border-foreman-orange opacity-0 group-hover:opacity-100'
+                    }`}
+                  >
+                    {copied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="font-sans text-xs text-foreman-text opacity-50 space-y-1">
+                <p>To install as a persistent service instead:</p>
+                <pre className="bg-foreman-bg-dark border border-foreman-border p-2 font-mono text-[11px] text-foreman-text opacity-70 select-all">
+                  sudo cloudflared service install {device.tunnel_token}
+                </pre>
+              </div>
+            </>
+          ) : (
+            <div className="bg-yellow-900/20 border border-yellow-700 px-4 py-3 font-mono text-sm text-yellow-400">
+              No tunnel token available for this device. You may need to delete and re-add it.
+            </div>
+          )}
+
+          {/* Status */}
+          <div className="bg-foreman-bg-dark border border-foreman-border p-4">
+            <div className="flex items-center gap-3">
+              {reconnected ? (
+                <>
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="font-mono text-sm text-green-400">Connected</span>
+                </>
+              ) : (
+                <>
+                  <div className="w-3 h-3 rounded-full bg-yellow-500 animate-pulse" />
+                  <span className="font-mono text-sm text-yellow-400">
+                    Waiting for device to reconnect...
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-foreman-border px-5 py-3 flex justify-end">
+          <button
+            onClick={onClose}
+            className={`font-sans text-xs px-4 py-2 ${
+              reconnected
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-foreman-bg-medium border border-foreman-border text-foreman-text hover:border-foreman-orange'
+            }`}
+          >
+            {reconnected ? 'Done' : 'Close'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Device Row ───────────────────────────────────────────────────
 function DeviceRow({ device, onDelete }: { device: Device; onDelete: (id: string) => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
 
   return (
     <tr className="border-b border-foreman-border hover:bg-foreman-bg-medium transition-colors">
@@ -389,15 +530,30 @@ function DeviceRow({ device, onDelete }: { device: Device; onDelete: (id: string
 
       {/* Status */}
       <td className="px-4 py-3">
-        <span className={`inline-flex items-center gap-1.5 font-mono text-xs px-2 py-0.5 border ${
-          device.status === 'online'
-            ? 'border-green-700 text-green-400 bg-green-900/20'
-            : device.status === 'pending'
-            ? 'border-yellow-700 text-yellow-400 bg-yellow-900/20'
-            : 'border-zinc-700 text-zinc-400 bg-zinc-900/20'
-        }`}>
-          {device.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 font-mono text-xs px-2 py-0.5 border ${
+            device.status === 'online'
+              ? 'border-green-700 text-green-400 bg-green-900/20'
+              : device.status === 'pending'
+              ? 'border-yellow-700 text-yellow-400 bg-yellow-900/20'
+              : 'border-zinc-700 text-zinc-400 bg-zinc-900/20'
+          }`}>
+            {device.status}
+          </span>
+          {device.status === 'offline' && device.tunnel_token && (
+            <button
+              onClick={() => setShowReconnect(true)}
+              className="font-mono text-xs px-2 py-0.5 border border-foreman-orange/60
+                         text-foreman-orange bg-foreman-orange/10 hover:bg-foreman-orange/20
+                         transition-colors"
+            >
+              Connect
+            </button>
+          )}
+        </div>
+        {showReconnect && (
+          <ReconnectModal device={device} onClose={() => setShowReconnect(false)} />
+        )}
       </td>
 
       {/* Capabilities */}

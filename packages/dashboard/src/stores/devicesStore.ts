@@ -25,6 +25,7 @@ export interface Device {
   status: DeviceStatus;
   tunnel_id?: string;
   tunnel_hostname?: string;
+  tunnel_token?: string;
   capabilities?: DeviceCapabilities;
   last_seen_at?: string;
   created_at: string;
