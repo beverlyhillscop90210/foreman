@@ -187,7 +187,7 @@ export const SettingsPage = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<{id: string, name: string}[]>([]);
-  const [ollamaModels, setOllamaModels] = useState<{model: string, device_id: string, device_name: string}[]>([]);
+  const [ollamaModels, setOllamaModels] = useState<{name: string, size: number}[]>([]);
   const toast = useToast();
 
   // Load settings on mount
@@ -212,12 +212,13 @@ export const SettingsPage = () => {
       })
       .catch(err => console.error('Failed to fetch OpenRouter models:', err));
 
-    // Fetch Ollama models from connected devices
-    api.fetch<{ models: { model: string; device_id: string; device_name: string }[] }>('/devices/ollama-models')
+    // Fetch Ollama models directly from local Ollama instance
+    fetch('http://localhost:11434/api/tags')
+      .then(res => res.json())
       .then(data => {
-        if (data.models) setOllamaModels(data.models);
+        if (data.models) setOllamaModels(data.models.map((m: any) => ({ name: m.name, size: m.size })));
       })
-      .catch(err => console.error('Failed to fetch Ollama models:', err));
+      .catch(err => console.error('Failed to fetch local Ollama models:', err));
   }, []);
 
   // Determine user role
@@ -571,6 +572,15 @@ export const SettingsPage = () => {
                         className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
                                    font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
                       >
+                        {ollamaModels.length > 0 && (
+                          <optgroup label="Ollama (Local)">
+                            {ollamaModels.map((m) => (
+                              <option key={`ollama-${m.name}`} value={`ollama:${m.name}`}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                         <optgroup label="Anthropic">
                           <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
                           <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
@@ -593,16 +603,6 @@ export const SettingsPage = () => {
                             </>
                           )}
                         </optgroup>
-                        {ollamaModels.length > 0 && (
-                          <optgroup label="Ollama (Local)">
-                            {/* Dedupe models across devices, show device name */}
-                            {ollamaModels.map((m, i) => (
-                              <option key={`ollama-${m.device_id}-${m.model}-${i}`} value={`ollama:${m.device_id}:${m.model}`}>
-                                {m.model} — {m.device_name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
                       </select>
                     </div>
 
