@@ -34,6 +34,7 @@ export function createDeviceRoutes(
       const ollama = device.capabilities?.ollama;
       if (ollama?.models?.length) {
         for (const model of ollama.models) {
+          if (!model || model.trim() === '') continue;
           ollamaModels.push({
             model,
             device_id: device.id,

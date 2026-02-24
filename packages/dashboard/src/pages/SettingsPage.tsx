@@ -212,13 +212,16 @@ export const SettingsPage = () => {
       })
       .catch(err => console.error('Failed to fetch OpenRouter models:', err));
 
-    // Fetch Ollama models directly from local Ollama instance
-    fetch('http://localhost:11434/api/tags')
-      .then(res => res.json())
+    // Fetch Ollama models from connected devices via bridge
+    api.fetch<{ models: { model: string; device_id: string; device_name: string }[] }>('/devices/ollama-models')
       .then(data => {
-        if (data.models) setOllamaModels(data.models.map((m: any) => ({ name: m.name, size: m.size })));
+        if (data.models) {
+          // Deduplicate models by name
+          const uniqueModels = Array.from(new Set(data.models.map(m => m.model)));
+          setOllamaModels(uniqueModels.map(name => ({ name, size: 0 })));
+        }
       })
-      .catch(err => console.error('Failed to fetch local Ollama models:', err));
+      .catch(err => console.error('Failed to fetch Ollama models:', err));
   }, []);
 
   // Determine user role

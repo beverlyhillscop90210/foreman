@@ -414,10 +414,16 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
   // Heartbeat keep-alive script for the device to run
   const heartbeatScript = `# Run on the device to keep it online (sends heartbeat every 60s)
 while true; do
+  CAPS="{}"
+  if command -v ollama &> /dev/null; then
+    OLLAMA_VER=$(ollama --version 2>/dev/null | head -1)
+    OLLAMA_MODELS=$(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' | tr '\\n' ',' | sed 's/,$//')
+    CAPS=$(echo "$CAPS" | python3 -c "import sys,json; d=json.load(sys.stdin); d['ollama']={'version':'$OLLAMA_VER','models':'$OLLAMA_MODELS'.split(',')}; print(json.dumps(d))" 2>/dev/null || echo "$CAPS")
+  fi
+
   curl -sf -X POST "${bridgeUrl}/devices/${device.id}/heartbeat" \\
     -H "Content-Type: application/json" \\
-    -H "Authorization: Bearer \${FOREMAN_TOKEN}" \\
-    -d '{}' > /dev/null 2>&1 && echo "[$(date)] heartbeat ok" || echo "[$(date)] heartbeat failed"
+    -d "{\\"capabilities\\": $CAPS}" > /dev/null 2>&1 && echo "[$(date)] heartbeat ok" || echo "[$(date)] heartbeat failed"
   sleep 60
 done`;
 
