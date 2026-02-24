@@ -19,6 +19,8 @@ import { DeviceRegistry } from './services/device-registry.js';
 import { TunnelService } from './services/tunnel.js';
 import { createDeviceRoutes } from './routes/devices.js';
 import { createLogger } from './logger.js';
+import { createSettingsRoutes } from './routes/settings.js';
+import { createDeviceTaskRoutes } from './routes/device-tasks.js';
 
 const log = createLogger('server');
 
@@ -42,6 +44,8 @@ const knowledgeService = new KnowledgeService();
 const dagExecutor = new DagExecutor(taskRunner, taskManager);
 const deviceRegistry = new DeviceRegistry();
 const tunnelService = new TunnelService();
+// Wire device registry into task runner for Ollama task routing
+taskRunner.deviceRegistry = deviceRegistry;
 const hgmemEngine = new HGMemEngine(knowledgeService);
 loadHGMemSessions(hgmemEngine);
 
@@ -592,6 +596,12 @@ hgmemEngine.on('session:step:end', (e) => wsManager.broadcast({ type: 'hgmem:ste
 // Mount Device routes
 const deviceRouter = createDeviceRoutes(deviceRegistry, tunnelService);
 app.route('/devices', deviceRouter);
+
+const settingsRouter = createSettingsRoutes();
+app.route('/settings', settingsRouter);
+
+const deviceTaskRouter = createDeviceTaskRoutes();
+app.route('/device-tasks', deviceTaskRouter);
 
 // Wire device events to WebSocket
 deviceRegistry.on('device:created', (d) => wsManager.broadcast({ type: 'device:created', device: d }));

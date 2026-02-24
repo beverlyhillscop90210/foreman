@@ -6,6 +6,9 @@ import { platform } from 'os';
 import type { Task, TaskStatus } from './types.js';
 import { getRoleSystemPrompt, getRole } from './agent-roles.js';
 import { createLogger } from './logger.js';
+import { settingsService } from './services/settings.js';
+import { deviceTaskQueue } from './services/device-task-queue.js';
+import type { DeviceRegistry } from './services/device-registry.js';
 
 const log = createLogger('task-runner');
 
@@ -19,6 +22,8 @@ export class TaskRunner extends EventEmitter {
   private readonly TASK_TIMEOUT_MS = 120 * 60 * 1000; // 120 minutes
   /** Optional callback to load knowledge context for a task */
   public knowledgeLoader?: (query: string) => Promise<string>;
+  /** Device registry reference for Ollama routing */
+  public deviceRegistry?: DeviceRegistry;
 
   /**
    * Parse a stream-json event from Claude CLI into a human-readable line.
@@ -150,23 +155,44 @@ export class TaskRunner extends EventEmitter {
     const prompt = await this.buildTaskPrompt(task);
     log.debug('Prompt built', { taskId: task.id, promptLength: prompt.length });
 
+    // ── Resolve the model for this task ────────────────────────────
+    const roleId: string | undefined = (task as any).role;
+    const configuredModel = roleId ? settingsService.getModelForRole(roleId) : null;
+    const effectiveModel = configuredModel || (task as any).model || null;
+
+    const modelLabel = effectiveModel || (task.agent === 'claude-code' ? 'claude-code (default)' : task.agent || 'claude-code');
+    this.emit('task:output', { taskId: task.id, line: `🎭 Role: ${roleId || 'none'} | 🤖 Model: ${modelLabel}`, stream: 'system' });
+    log.info('Resolved model for task', { taskId: task.id, roleId, configuredModel, effectiveModel });
+
+    // ── Route to Ollama device execution if model is ollama:* ───────
+    if (effectiveModel?.startsWith('ollama:')) {
+      const ollamaModel = effectiveModel.replace(/^ollama:/, '');
+      await this.runOllamaDeviceTask(task, ollamaModel, prompt);
+      return;
+    }
+
     let command = '';
     let args: string[] = [];
 
-    const isClaude = task.agent === 'claude-code' || task.agent === 'claude';
+    const isClaude = task.agent === 'claude-code' || task.agent === 'claude' || !effectiveModel || effectiveModel.includes('claude');
     if (isClaude) {
       command = 'claude';
-      args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', prompt];
+      // If a specific non-ollama model was configured, pass it via --model flag
+      if (effectiveModel && !effectiveModel.startsWith('ollama:') && !effectiveModel.includes('claude-code')) {
+        args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', effectiveModel, prompt];
+      } else {
+        args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', prompt];
+      }
     } else if (task.agent === 'augment' || task.agent === 'augment-agent') {
       command = 'augment';
       args = ['run', prompt];
     } else {
-      // Default to a simple echo if no agent is specified or recognized
-      command = 'echo';
-      args = [`Executing custom task: ${task.title || task.description}`];
+      // Default to claude
+      command = 'claude';
+      args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', prompt];
     }
 
-    log.info('Spawning agent process', { taskId: task.id, command, argsLength: args.length, agent: task.agent });
+    log.info('Spawning agent process', { taskId: task.id, command, argsLength: args.length, agent: task.agent, model: effectiveModel });
     this.emit('task:output', { taskId: task.id, line: `Running command: ${command} ${args.join(' ')}`, stream: 'stdout' });
 
     const projectsDir = process.env.PROJECTS_DIR || '/home/foreman/projects';
@@ -378,6 +404,83 @@ export class TaskRunner extends EventEmitter {
       this.runningTasks.delete(taskId);
     } else {
       log.warn('failTask called for unknown task', { taskId });
+    }
+  }
+
+  /**
+   * Execute a task on a connected device via Ollama
+   * Dispatches to the device task queue; the device polls and runs it locally.
+   */
+  private async runOllamaDeviceTask(task: Task, ollamaModel: string, prompt: string): Promise<void> {
+    // Find a device that has this model in its Ollama capabilities
+    let deviceId: string | null = null;
+    let deviceName: string = 'unknown';
+
+    if (!this.deviceRegistry) {
+      this.emit('task:output', { taskId: task.id, line: `❌ Device registry not available for Ollama routing`, stream: 'stderr' });
+      this.failTask(task.id, 'Device registry not configured in TaskRunner');
+      return;
+    }
+
+    const onlineDevices = this.deviceRegistry.getOnlineDevices();
+    for (const device of onlineDevices) {
+      const models: string[] = device.capabilities?.ollama?.models ?? [];
+      if (models.includes(ollamaModel)) {
+        deviceId = device.id;
+        deviceName = device.name;
+        break;
+      }
+    }
+
+    if (!deviceId) {
+      const allDevices = this.deviceRegistry.listDevices();
+      for (const device of allDevices) {
+        const models: string[] = device.capabilities?.ollama?.models ?? [];
+        if (models.includes(ollamaModel)) {
+          deviceId = device.id;
+          deviceName = device.name;
+          break;
+        }
+      }
+      if (deviceId) {
+        this.emit('task:output', { taskId: task.id, line: `⚠️  Device "${deviceName}" has model ${ollamaModel} but is OFFLINE. Waiting for it to reconnect...`, stream: 'stderr' });
+      } else {
+        const available = this.deviceRegistry.getOnlineDevices().flatMap((d: any) => d.capabilities?.ollama?.models ?? []).join(', ') || 'none';
+        this.emit('task:output', { taskId: task.id, line: `❌ No device found with Ollama model "${ollamaModel}". Available models: ${available}`, stream: 'stderr' });
+        this.failTask(task.id, `No device with Ollama model "${ollamaModel}" is available`);
+        return;
+      }
+    }
+
+    this.emit('task:output', { taskId: task.id, line: `📡 Dispatching to device "${deviceName}" via Ollama model: ${ollamaModel}`, stream: 'system' });
+    this.emit('task:output', { taskId: task.id, line: `⏳ Waiting for device to pick up task... (ensure heartbeat script is running)`, stream: 'system' });
+
+    // Enqueue the device task
+    const dt = deviceTaskQueue.enqueue({ taskId: task.id, deviceId: deviceId!, model: ollamaModel, prompt });
+
+    // Stream output chunks as they arrive
+    const onChunk = (evt: { dtId: string; taskId: string; chunk: string }) => {
+      if (evt.dtId === dt.id) {
+        this.emit('task:output', { taskId: task.id, line: evt.chunk, stream: 'stdout' });
+      }
+    };
+    deviceTaskQueue.on('task:chunk', onChunk);
+
+    try {
+      const completed = await deviceTaskQueue.waitForCompletion(dt.id, 15 * 60 * 1000);
+      deviceTaskQueue.off('task:chunk', onChunk);
+
+      if (completed.output) {
+        // Final output already streamed via chunks — just mark done
+        this.emit('task:output', { taskId: task.id, line: `✅ Ollama task completed on device "${deviceName}"`, stream: 'system' });
+      }
+
+      task.agent_output = completed.output || '';
+      this.completeTask(task.id, { status: 'completed' });
+    } catch (err: any) {
+      deviceTaskQueue.off('task:chunk', onChunk);
+      this.emit('task:output', { taskId: task.id, line: `❌ Ollama task failed: ${err.message}`, stream: 'stderr' });
+      this.failTask(task.id, err.message);
     }
   }
 

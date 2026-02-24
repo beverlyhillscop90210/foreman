@@ -412,8 +412,15 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
   };
 
   // Heartbeat keep-alive script for the device to run
-  const heartbeatScript = `# Run on the device to keep it online (sends heartbeat every 60s)
+  const heartbeatScript = `#!/bin/bash
+# Run on the device to keep it online and execute Ollama tasks
+BRIDGE="${bridgeUrl}"
+DEVICE_ID="${device.id}"
+
+export BRIDGE DEVICE_ID
+
 while true; do
+  # --- Heartbeat ---
   CAPS="{}"
   if command -v ollama &> /dev/null; then
     OLLAMA_VER=$(ollama --version 2>/dev/null | head -1)
@@ -421,10 +428,58 @@ while true; do
     CAPS=$(echo "$CAPS" | python3 -c "import sys,json; d=json.load(sys.stdin); d['ollama']={'version':'$OLLAMA_VER','models':'$OLLAMA_MODELS'.split(',')}; print(json.dumps(d))" 2>/dev/null || echo "$CAPS")
   fi
 
-  curl -sf -X POST "${bridgeUrl}/devices/${device.id}/heartbeat" \\
+  curl -sf -X POST "$BRIDGE/devices/$DEVICE_ID/heartbeat" \\
     -H "Content-Type: application/json" \\
     -d "{\\"capabilities\\": $CAPS}" > /dev/null 2>&1 && echo "[$(date)] heartbeat ok" || echo "[$(date)] heartbeat failed"
-  sleep 60
+
+  # --- Ollama task polling ---
+  python3 <<'PYEOF'
+import os, json, subprocess, urllib.request
+
+bridge = os.environ['BRIDGE']
+device_id = os.environ['DEVICE_ID']
+headers = {'Content-Type': 'application/json'}
+
+def post(url, payload=b'{}'):
+    req = urllib.request.Request(url, method='POST', headers=headers, data=payload)
+    return urllib.request.urlopen(req)
+
+try:
+    resp = urllib.request.urlopen(f'{bridge}/device-tasks/{device_id}')
+    tasks = json.loads(resp.read()).get('tasks', [])
+except Exception as e:
+    print(f'[Foreman] task poll error: {e}')
+    tasks = []
+
+for task in tasks:
+    dt_id = task['id']
+    model = task['model']
+    prompt = task['prompt']
+    print(f'[Foreman] task {dt_id}: {model}')
+    try:
+        post(f'{bridge}/device-tasks/{dt_id}/pick')
+        result = subprocess.run(['ollama', 'run', model, prompt],
+            capture_output=True, text=True, timeout=600)
+        output = result.stdout or result.stderr or '(no output)'
+        if result.returncode == 0:
+            post(f'{bridge}/device-tasks/{dt_id}/complete',
+                json.dumps({'output': output}).encode())
+            print(f'[Foreman] task {dt_id} completed')
+        else:
+            post(f'{bridge}/device-tasks/{dt_id}/fail',
+                json.dumps({'error': output}).encode())
+            print(f'[Foreman] task {dt_id} failed (exit {result.returncode})')
+    except subprocess.TimeoutExpired:
+        post(f'{bridge}/device-tasks/{dt_id}/fail',
+            json.dumps({'error': 'Ollama timed out after 600s'}).encode())
+    except Exception as e:
+        try: post(f'{bridge}/device-tasks/{dt_id}/fail',
+            json.dumps({'error': str(e)}).encode())
+        except: pass
+        print(f'[Foreman] task {dt_id} error: {e}')
+PYEOF
+
+  sleep 30
 done`;
 
   return (

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 
 export interface EnvVar {
   key: string;
@@ -359,6 +360,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             value: userEnvVars
           }, { onConflict: 'user_id,key' });
       }
+
+      // Sync rolesConfig to bridge so task runner can read it
+      api.fetch('/settings/roles', {
+        method: 'PUT',
+        body: JSON.stringify({ rolesConfig }),
+      }).catch(err => console.warn('Failed to sync roles to bridge:', err));
 
       // Also save to local storage as backup
       get().saveToLocalStorage();
