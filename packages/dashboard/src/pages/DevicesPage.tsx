@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useDevicesStore, type Device, type DeviceType } from '../stores/devicesStore';
 import { api } from '../lib/api';
 
@@ -575,10 +576,11 @@ function DeviceRow({ device, onDelete }: { device: Device; onDelete: (id: string
             </button>
           )}
         </div>
-        {showReconnect && (
-          <ReconnectModal device={device} onClose={() => setShowReconnect(false)} />
-        )}
       </td>
+      {showReconnect && createPortal(
+        <ReconnectModal device={device} onClose={() => setShowReconnect(false)} />,
+        document.body
+      )}
 
       {/* Capabilities */}
       <td className="px-4 py-3">
