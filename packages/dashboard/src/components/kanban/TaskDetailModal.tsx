@@ -81,13 +81,25 @@ export const TaskDetailModal = ({ task, onClose }: TaskDetailModalProps) => {
           <div className="bg-foreman-bg-medium border border-foreman-border p-3">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <div className="font-mono text-xs text-foreman-text opacity-50 mb-1">Agent ID</div>
+                <div className="font-mono text-xs text-foreman-text opacity-50 mb-1">Agent</div>
                 <div className="font-mono text-sm text-foreman-text">{task.agentId}</div>
               </div>
               <div>
                 <div className="font-mono text-xs text-foreman-text opacity-50 mb-1">Runtime</div>
                 <div className="font-mono text-sm text-foreman-text">{task.elapsedTime}</div>
               </div>
+              {task.role && (
+                <div>
+                  <div className="font-mono text-xs text-foreman-text opacity-50 mb-1">Role</div>
+                  <div className="font-mono text-sm text-foreman-orange">{task.role}</div>
+                </div>
+              )}
+              {task.model && (
+                <div>
+                  <div className="font-mono text-xs text-foreman-text opacity-50 mb-1">Model</div>
+                  <div className="font-mono text-sm text-foreman-orange">{task.model}</div>
+                </div>
+              )}
             </div>
           </div>
 

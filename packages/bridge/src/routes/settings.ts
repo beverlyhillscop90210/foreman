@@ -6,7 +6,10 @@ export function createSettingsRoutes() {
 
   /** GET /settings/roles - return current roles config */
   app.get('/roles', (c) => {
-    return c.json({ rolesConfig: settingsService.getRolesConfig() });
+    return c.json({
+      rolesConfig: settingsService.getRolesConfig(),
+      defaultModel: settingsService.getDefaultModel(),
+    });
   });
 
   /** PUT /settings/roles - save roles config from dashboard */
@@ -18,6 +21,9 @@ export function createSettingsRoutes() {
         return c.json({ error: 'Expected array of role configs' }, 400);
       }
       settingsService.setRolesConfig(roles);
+      if (body.defaultModel !== undefined) {
+        settingsService.setDefaultModel(body.defaultModel);
+      }
       return c.json({ ok: true, count: roles.length });
     } catch (err: any) {
       return c.json({ error: err.message }, 500);

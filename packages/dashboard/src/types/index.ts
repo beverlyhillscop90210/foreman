@@ -33,6 +33,8 @@ export interface KanbanTask {
   title: string;
   project: string;
   agentId: string;
+  model?: string;
+  role?: string;
   elapsedTime: string;
   status: KanbanStatus;
   briefing?: string;

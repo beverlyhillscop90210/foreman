@@ -15,6 +15,7 @@ export interface RoleConfig {
 
 interface SettingsStore {
   rolesConfig: RoleConfig[];
+  defaultModel?: string;
 }
 
 class SettingsService {
@@ -56,10 +57,22 @@ class SettingsService {
     log.info('Roles config saved', { roles: roles.length });
   }
 
-  /** Look up the configured model for a role ID */
+  getDefaultModel(): string | null {
+    return this.data.defaultModel || null;
+  }
+
+  setDefaultModel(model: string) {
+    this.data.defaultModel = model;
+    this.save();
+    log.info('Default model saved', { model });
+  }
+
+  /** Look up the configured model for a role ID, falling back to the global default */
   getModelForRole(roleId: string): string | null {
     const role = this.data.rolesConfig.find(r => r.id === roleId);
-    return role?.model ?? null;
+    if (role?.model) return role.model;
+    // Fall back to global default model if set
+    return this.data.defaultModel || null;
   }
 }
 

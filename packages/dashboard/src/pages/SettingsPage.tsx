@@ -183,7 +183,7 @@ const AddVariableForm = ({ onAdd, onCancel }: { onAdd: (envVar: EnvVar) => void;
 
 export const SettingsPage = () => {
   const { setMaxAgents } = useTerminalStore();
-  const { envVars, agentConfig, accessControl, rolesConfig, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig } = useSettingsStore();
+  const { envVars, agentConfig, accessControl, rolesConfig, defaultModel, addEnvVar, deleteEnvVar, setAgentConfig, setAccessControl, updateRoleConfig, setDefaultModel } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<{id: string, name: string}[]>([]);
@@ -560,6 +560,35 @@ export const SettingsPage = () => {
             </div>
 
             <div className="space-y-4">
+              {/* Default Model — applies to any role not explicitly configured */}
+              <div className="bg-foreman-bg-dark border border-foreman-orange/40 p-4">
+                <label className="block font-mono text-sm text-foreman-orange mb-2">
+                  Default Model
+                  <span className="ml-2 text-foreman-text opacity-50 font-sans text-xs font-normal">
+                    used when a task role has no specific model configured
+                  </span>
+                </label>
+                <select
+                  value={defaultModel}
+                  onChange={(e) => setDefaultModel(e.target.value)}
+                  className="w-full bg-foreman-bg-medium border border-foreman-border text-foreman-text
+                             font-mono text-sm px-3 py-2 focus:outline-none focus:border-foreman-orange"
+                >
+                  <option value="">— none (use agent default) —</option>
+                  {ollamaModels.length > 0 && (
+                    <optgroup label="Ollama (Local)">
+                      {ollamaModels.map((m) => (
+                        <option key={`default-ollama-${m.name}`} value={`ollama:${m.name}`}>{m.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Anthropic">
+                    <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
+                    <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
+                  </optgroup>
+                </select>
+              </div>
+
               {rolesConfig.map((role) => (
                 <div key={role.id} className="bg-foreman-bg-dark border border-foreman-border p-4">
                   <h3 className="font-mono text-sm text-foreman-orange mb-3">{role.name}</h3>

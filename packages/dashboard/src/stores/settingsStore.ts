@@ -46,6 +46,7 @@ interface SettingsStore {
   agentConfig: AgentConfig;
   accessControl: AccessControl;
   rolesConfig: RoleConfig[];
+  defaultModel: string;
   isLoading: boolean;
   
   // Env var actions
@@ -63,6 +64,7 @@ interface SettingsStore {
   // Role config actions
   setRolesConfig: (roles: RoleConfig[]) => void;
   updateRoleConfig: (id: string, updates: Partial<RoleConfig>) => void;
+  setDefaultModel: (model: string) => void;
   
   // Persistence
   loadFromLocalStorage: () => void;
@@ -110,6 +112,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   agentConfig: DEFAULT_AGENT_CONFIG,
   accessControl: DEFAULT_ACCESS_CONTROL,
   rolesConfig: DEFAULT_ROLES_CONFIG,
+  defaultModel: '',
   isLoading: false,
 
   setEnvVars: (vars) => {
@@ -159,6 +162,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => ({
       rolesConfig: state.rolesConfig.map(r => r.id === id ? { ...r, ...updates } : r)
     }));
+    get().saveToAPI();
+  },
+
+  setDefaultModel: (model) => {
+    set({ defaultModel: model });
     get().saveToAPI();
   },
 
@@ -217,6 +225,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           agentConfig: data.agentConfig || DEFAULT_AGENT_CONFIG,
           accessControl: loadedAccessControl,
           rolesConfig: data.rolesConfig || DEFAULT_ROLES_CONFIG,
+          defaultModel: data.defaultModel || '',
         });
       }
     } catch (error) {
@@ -226,8 +235,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   saveToLocalStorage: () => {
     try {
-      const { envVars, agentConfig, accessControl, rolesConfig } = get();
-      localStorage.setItem('foreman-settings', JSON.stringify({ envVars, agentConfig, accessControl, rolesConfig }));
+      const { envVars, agentConfig, accessControl, rolesConfig, defaultModel } = get();
+      localStorage.setItem('foreman-settings', JSON.stringify({ envVars, agentConfig, accessControl, rolesConfig, defaultModel }));
     } catch (error) {
       console.error('Failed to save settings to localStorage:', error);
     }
@@ -262,6 +271,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       let newAgentConfig = DEFAULT_AGENT_CONFIG;
       let newAccessControl = DEFAULT_ACCESS_CONTROL;
       let newRolesConfig = DEFAULT_ROLES_CONFIG;
+      let newDefaultModel = '';
 
       if (globalSettings && Array.isArray(globalSettings)) {
         const envVarsSetting = globalSettings.find(s => s.key === 'envVars');
@@ -289,6 +299,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
         const rolesConfigSetting = globalSettings.find(s => s.key === 'rolesConfig');
         if (rolesConfigSetting) newRolesConfig = rolesConfigSetting.value;
+
+        const defaultModelSetting = globalSettings.find(s => s.key === 'defaultModel');
+        if (defaultModelSetting) newDefaultModel = defaultModelSetting.value || '';
       }
 
       if (userSettings && Array.isArray(userSettings)) {
@@ -312,6 +325,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         agentConfig: newAgentConfig,
         accessControl: newAccessControl,
         rolesConfig: newRolesConfig,
+        defaultModel: newDefaultModel,
       });
 
       // Also save to local storage as backup
@@ -330,7 +344,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         return;
       }
 
-      const { envVars, agentConfig, accessControl, rolesConfig } = get();
+      const { envVars, agentConfig, accessControl, rolesConfig, defaultModel } = get();
 
       // Separate global and user-specific env vars
       const globalEnvVars = envVars.filter(v => !v.userEmail);
@@ -342,6 +356,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         { key: 'agentConfig', value: agentConfig },
         { key: 'accessControl', value: accessControl },
         { key: 'rolesConfig', value: rolesConfig },
+        { key: 'defaultModel', value: defaultModel },
       ];
 
       for (const update of globalUpdates) {
@@ -364,7 +379,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       // Sync rolesConfig to bridge so task runner can read it
       api.fetch('/settings/roles', {
         method: 'PUT',
-        body: JSON.stringify({ rolesConfig }),
+        body: JSON.stringify({ rolesConfig, defaultModel: get().defaultModel }),
       }).catch(err => console.warn('Failed to sync roles to bridge:', err));
 
       // Also save to local storage as backup

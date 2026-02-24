@@ -162,6 +162,7 @@ export class TaskRunner extends EventEmitter {
 
     const modelLabel = effectiveModel || (task.agent === 'claude-code' ? 'claude-code (default)' : task.agent || 'claude-code');
     this.emit('task:output', { taskId: task.id, line: `🎭 Role: ${roleId || 'none'} | 🤖 Model: ${modelLabel}`, stream: 'system' });
+    this.emit('task:model_resolved', { taskId: task.id, model: modelLabel, role: roleId || null });
     log.info('Resolved model for task', { taskId: task.id, roleId, configuredModel, effectiveModel });
 
     // ── Route to Ollama device execution if model is ollama:* ───────

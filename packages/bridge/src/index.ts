@@ -142,6 +142,18 @@ taskRunner.on('task:output', (event) => {
   }
 });
 
+taskRunner.on('task:model_resolved', (event: { taskId: string; model: string; role: string | null }) => {
+  const task = taskManager.getTask(event.taskId);
+  if (task) {
+    taskManager.updateTaskStatus(task.id, task.status, {
+      model: event.model,
+      ...(event.role ? { role: event.role } as any : {}),
+    });
+    // Broadcast updated task so dashboard cards refresh immediately
+    wsManager.broadcast({ type: 'task_event', event: 'updated', taskId: task.id, task: taskManager.getTask(task.id) });
+  }
+});
+
 // Wire up KanbanCoordinator events to WebSocket
 kanbanCoordinator.on('card:created', (card) => {
   log.debug('Card created', { cardId: card.id });
