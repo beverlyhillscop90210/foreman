@@ -412,8 +412,8 @@ function ReconnectModal({ device, onClose }: { device: Device; onClose: () => vo
   };
 
   // Heartbeat keep-alive script for the device to run
-  const heartbeatScript = `#!/bin/bash
-# Run on the device to keep it online and execute Ollama tasks
+  const heartbeatScript = `# foreman-agent.sh — save to file, run with: bash ~/foreman-agent.sh
+# Heartbeat + Ollama task executor for Foreman
 BRIDGE="${bridgeUrl}"
 DEVICE_ID="${device.id}"
 
@@ -542,7 +542,7 @@ done`;
           {/* Heartbeat Script */}
           <div>
             <label className="block font-mono text-xs text-foreman-text mb-2 uppercase tracking-wider">
-              Keep-alive script (run on device)
+              Agent script — save &amp; run on device
             </label>
             <div className="relative group">
               <pre className="bg-black border border-foreman-border p-4 font-mono text-[12px] text-green-400 overflow-x-auto whitespace-pre-wrap select-all leading-relaxed">
@@ -560,7 +560,8 @@ done`;
               </button>
             </div>
             <p className="font-sans text-xs text-foreman-text opacity-40 mt-1">
-              This sends a heartbeat every 60 seconds to keep the device marked as online.
+              Copy → <span className="font-mono opacity-70">pbpaste &gt; ~/foreman-agent.sh &amp;&amp; bash ~/foreman-agent.sh</span>
+              &nbsp;· Heartbeat every 30s + polls for Ollama tasks
             </p>
           </div>
 
