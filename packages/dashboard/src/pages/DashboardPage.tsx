@@ -89,14 +89,12 @@ function DagActionBar({ dag }: { dag: Dag }) {
               ▶ EXECUTE
             </button>
           )}
-          {dag.status !== 'running' && (
-            <button
-              onClick={() => { deleteDag(dag.id); selectDag(null); }}
-              className="text-[#f85149] font-mono text-[10px] px-2 py-1 rounded border border-[#f8514930] hover:bg-[#f8514920]"
-            >
-              ✕
-            </button>
-          )}
+          <button
+            onClick={() => { deleteDag(dag.id); selectDag(null); }}
+            className="text-[#f85149] font-mono text-[10px] px-2 py-1 rounded border border-[#f8514930] hover:bg-[#f8514920]"
+          >
+            ✕
+          </button>
         </div>
       </div>
       {/* Progress bar */}
@@ -406,7 +404,7 @@ function TaskListItem({ task, onDelete }: { task: Task; onDelete?: (id: string) 
       <div className="flex items-center justify-between gap-1">
         <span className="font-mono text-[10px] truncate text-[#c9d1d9]">{task.title}</span>
         <div className="flex items-center gap-1 shrink-0">
-          {(task.status === 'failed' || task.status === 'rejected' || task.status === 'qc_failed' || task.status === 'completed' || task.status === 'approved') && onDelete && (
+          {onDelete && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
               className="text-[9px] text-[#484f58] hover:text-[#ef4444] transition-colors px-0.5"
@@ -518,20 +516,22 @@ export const DashboardPage = () => {
           ))}
         </div>
 
-        {/* Active Tasks Section */}
-        <div className="border-t border-[#30363d]">
-          <div className="h-8 border-b border-[#30363d] flex items-center justify-between px-3">
-            <span className="font-mono text-[10px] text-[#c9d1d9] font-bold">TASKS</span>
-            <span className="font-mono text-[9px] text-[#484f58]">{tasks.length}</span>
+        {/* Active Tasks Section - Only show when a DAG is selected */}
+        {selectedDagId && (
+          <div className="border-t border-[#30363d]">
+            <div className="h-8 border-b border-[#30363d] flex items-center justify-between px-3">
+              <span className="font-mono text-[10px] text-[#c9d1d9] font-bold">TASKS</span>
+              <span className="font-mono text-[9px] text-[#484f58]">{tasks.length}</span>
+            </div>
+            <div className="max-h-[280px] overflow-auto p-2 space-y-1">
+              {tasks.length === 0 ? (
+                <div className="text-[10px] text-[#484f58] italic text-center py-3 font-mono">No tasks</div>
+              ) : (
+                tasks.map(task => <TaskListItem key={task.id} task={task} onDelete={async (id) => { await api.deleteTask(id); fetchTasks(); }} />)
+              )}
+            </div>
           </div>
-          <div className="max-h-[280px] overflow-auto p-2 space-y-1">
-            {tasks.length === 0 ? (
-              <div className="text-[10px] text-[#484f58] italic text-center py-3 font-mono">No tasks</div>
-            ) : (
-              tasks.map(task => <TaskListItem key={task.id} task={task} onDelete={async (id) => { await api.deleteTask(id); fetchTasks(); }} />)
-            )}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Main Content: Resizable Split */}
@@ -570,54 +570,10 @@ export const DashboardPage = () => {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#0d1117]">
-            {tasks.length > 0 ? (
-              <div className="max-w-lg w-full mx-auto p-6">
-                <h2 className="font-mono text-sm text-[#c9d1d9] font-bold mb-4">Active Tasks</h2>
-                <div className="space-y-2">
-                  {tasks.map(task => {
-                    const statusColor =
-                      task.status === 'completed' || task.status === 'approved' ? '#22c55e' :
-                      task.status === 'running'   ? '#3b82f6' :
-                      task.status === 'failed'    ? '#ef4444' :
-                      task.status === 'reviewing' ? '#f59e0b' :
-                      '#6b7280';
-                    const lastOutput = Array.isArray(task.output) && task.output.length > 0
-                      ? String(task.output[task.output.length - 1]).slice(0, 120)
-                      : '';
-                    return (
-                      <div key={task.id} className="border border-[#30363d] rounded-md p-3 bg-[#161b22]">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-mono text-xs text-[#c9d1d9] font-semibold truncate">{task.title}</span>
-                          <span
-                            className="font-mono text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0 ml-2"
-                            style={{ color: statusColor, background: `${statusColor}20`, border: `1px solid ${statusColor}40` }}
-                          >
-                            {task.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] font-mono text-[#484f58]">
-                          <span>{task.agent}</span>
-                          <span>·</span>
-                          <span>{task.project}</span>
-                          <span>·</span>
-                          <span>{task.id}</span>
-                        </div>
-                        {lastOutput && (
-                          <div className="mt-2 font-mono text-[10px] text-[#8b949e] truncate bg-[#0d1117] rounded px-2 py-1">
-                            {lastOutput}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center">
-                <div className="text-5xl mb-4 opacity-10">📊</div>
-                <p className="font-mono text-xs text-[#484f58]">Select a DAG or plan a new one</p>
-              </div>
-            )}
+            <div className="text-center">
+              <div className="text-5xl mb-4 opacity-10">📊</div>
+              <p className="font-mono text-xs text-[#484f58]">Select a DAG to see telemetry</p>
+            </div>
           </div>
         )}
       </div>
