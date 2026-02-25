@@ -61,11 +61,13 @@ export class HGMemEngine extends EventEmitter {
   private config: HGMemConfig;
   private knowledgeService: KnowledgeService;
   private sessions: Map<string, { session: HGMemSession; graph: Hypergraph }> = new Map();
+  private userId?: string; // User ID for API key lookup
 
-  constructor(knowledgeService: KnowledgeService, config?: Partial<HGMemConfig>) {
+  constructor(knowledgeService: KnowledgeService, config?: Partial<HGMemConfig>, userId?: string) {
     super();
     this.knowledgeService = knowledgeService;
     this.config = { ...defaultConfig(), ...config };
+    this.userId = userId;
     // Override api_key from env if not set in config
     if (!this.config.llm.api_key) {
       this.config.llm.api_key = process.env.OPENROUTER_API_KEY || '';

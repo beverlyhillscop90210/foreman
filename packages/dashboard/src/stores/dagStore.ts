@@ -95,6 +95,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
     try {
       set({ loading: true, error: null });
       const data = await api.fetch<{ dags: Dag[] }>('/dags');
+      // Don't auto-select any DAG - user must click to select
       set({ dags: data.dags, loading: false });
     } catch (err: any) {
       set({ error: err.message, loading: false });

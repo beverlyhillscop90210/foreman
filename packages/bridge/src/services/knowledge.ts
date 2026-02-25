@@ -38,6 +38,7 @@ export class KnowledgeService {
 
   /**
    * Generate an embedding vector using OpenAI or OpenRouter.
+   * Uses system-level API keys (from env) since knowledge is global across users.
    */
   private async generateEmbedding(text: string): Promise<number[] | null> {
     const openaiKey = process.env.OPENAI_API_KEY;
