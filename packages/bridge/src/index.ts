@@ -22,6 +22,7 @@ import { createLogger } from './logger.js';
 import { createSettingsRoutes } from './routes/settings.js';
 import { createDeviceTaskRoutes } from './routes/device-tasks.js';
 import { deviceTaskQueue } from './services/device-task-queue.js';
+import { tasksRouter } from './routes/tasks.js';
 
 const log = createLogger('server');
 
@@ -639,6 +640,9 @@ app.route('/settings', settingsRouter);
 
 const deviceTaskRouter = createDeviceTaskRoutes();
 app.route('/device-tasks', deviceTaskRouter);
+
+// Mount Task routes (with auth)
+app.route('/api/tasks', tasksRouter);
 
 // Wire device events to WebSocket
 deviceRegistry.on('device:created', (d) => wsManager.broadcast({ type: 'device:created', device: d }));
