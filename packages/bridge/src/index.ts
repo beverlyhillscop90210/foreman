@@ -217,11 +217,12 @@ app.get('/tasks/:id', (c) => {
   return c.json(task);
 });
 
-// POST /tasks - Create and optionally run a task
+// POST /tasks - Create and optionally run a task (DEPRECATED - use /api/tasks instead)
 app.post('/tasks', async (c) => {
   try {
     const body = await c.req.json();
     const newTask = await taskManager.createTask({
+      user_id: 'legacy', // Legacy endpoint - no auth
       title: body.title,
       description: body.description || body.briefing || '',
       project: body.project || 'default',
@@ -232,10 +233,10 @@ app.post('/tasks', async (c) => {
       blocked_files: body.blocked_files,
       verification: body.verification,
     });
-    
+
     // Auto-start the task
     taskRunner.runTask(newTask).catch(err => console.error('Failed to run task:', err));
-    
+
     return c.json(newTask, 201);
   } catch (error) {
     console.error('Failed to create task:', error);
@@ -464,6 +465,7 @@ Be concise and direct. Use markdown formatting.`;
 
             case 'create_task': {
               const newTask = await taskManager.createTask({
+                user_id: 'websocket', // WebSocket endpoint - no auth
                 title: args.title,
                 description: args.description,
                 project: args.project,

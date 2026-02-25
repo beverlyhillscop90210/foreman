@@ -8,6 +8,7 @@ export type TaskStatus =
 
 export interface Task {
   id: string;
+  user_id: string;  // User who created this task
   title?: string;
   project: string;
   description: string;

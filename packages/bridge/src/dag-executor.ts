@@ -70,6 +70,7 @@ export class DagExecutor extends EventEmitter {
   private taskManager: TaskManager;
   // Map taskId → { dagId, nodeId } for routing task events back to DAG nodes
   private taskToDag: Map<string, { dagId: string; nodeId: string }> = new Map();
+  public systemUserId: string = 'system'; // Default user ID for DAG-created tasks
 
   constructor(taskRunner: TaskRunner, taskManager: TaskManager) {
     super();
@@ -380,6 +381,7 @@ export class DagExecutor extends EventEmitter {
 
     try {
       const task = await this.taskManager.createTask({
+        user_id: this.systemUserId,
         title: node.title,
         description: enrichedBriefing,
         project: node.project || dag.project,

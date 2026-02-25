@@ -12,7 +12,6 @@ export const TopBar = () => {
 
   const navLinks = [
     { path: '/', label: 'Dashboard' },
-    { path: '/kanban', label: 'Kanban' },
     { path: '/knowledge', label: 'Knowledge' },
     { path: '/devices', label: 'Devices' },
     { path: '/settings', label: 'Settings' },

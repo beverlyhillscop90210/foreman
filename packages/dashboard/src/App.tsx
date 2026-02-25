@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LoginPage } from './components/auth/LoginPage';
 import { Layout } from './components/layout/Layout';
 import { DashboardPage } from './pages/DashboardPage';
-import { KanbanPage } from './pages/KanbanPage';
 import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DevicesPage } from './pages/DevicesPage';
@@ -109,7 +108,6 @@ function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/kanban" element={<KanbanPage />} />
           <Route path="/knowledge" element={<KnowledgePage />} />
           <Route path="/devices" element={<DevicesPage />} />
           <Route path="/settings" element={<SettingsPage />} />

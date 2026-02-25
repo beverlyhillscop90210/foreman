@@ -46,6 +46,7 @@ export class TaskManager {
   }
 
   async createTask(body: {
+    user_id: string;
     project: string;
     title?: string;
     description: string;
@@ -58,6 +59,7 @@ export class TaskManager {
   }): Promise<Task> {
     const task: Task = {
       id: this.generateId(),
+      user_id: body.user_id,
       title: body.title,
       project: body.project,
       description: body.description || body.briefing || '',
@@ -73,7 +75,7 @@ export class TaskManager {
     if (body.role) (task as any).role = body.role;
     this.tasks.push(task);
     this.saveTasks();
-    log.info('Task created', { taskId: task.id, title: body.title, project: body.project, agent: body.agent });
+    log.info('Task created', { taskId: task.id, title: body.title, project: body.project, agent: body.agent, userId: body.user_id });
     return task;
   }
 
@@ -81,12 +83,23 @@ export class TaskManager {
     return this.tasks;
   }
 
-  listTasks(): Task[] {
-    return this.tasks;
+  listTasks(userId?: string): Task[] {
+    if (!userId) {
+      return this.tasks;
+    }
+    return this.tasks.filter((t) => t.user_id === userId);
   }
 
-  getTask(id: string): Task | undefined {
-    return this.tasks.find((t) => t.id === id);
+  getTask(id: string, userId?: string): Task | undefined {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return undefined;
+
+    // If userId is provided, verify ownership
+    if (userId && task.user_id !== userId) {
+      return undefined;
+    }
+
+    return task;
   }
 
   updateTaskStatus(id: string, status: TaskStatus, data?: Partial<Task>): void {

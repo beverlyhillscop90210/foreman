@@ -2,12 +2,24 @@
  * Tasks API routes
  */
 
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { TaskManager } from '../task-manager.js';
 import type { CreateTaskRequest, ApproveRequest, RejectRequest } from '../types.js';
+import { authMiddleware } from '../middleware/auth.js';
 
-export const tasksRouter = new Hono();
+// Define context variables type
+type Variables = {
+  user: {
+    id: string;
+    role: string;
+  };
+};
+
+export const tasksRouter = new Hono<{ Variables: Variables }>();
 const taskManager = new TaskManager();
+
+// Apply auth middleware to all task routes
+tasksRouter.use('/*', authMiddleware);
 
 // Export taskManager for WebSocket integration
 export function getTaskManager(): TaskManager {
@@ -17,8 +29,9 @@ export function getTaskManager(): TaskManager {
 // POST /tasks - Create new task
 tasksRouter.post('/', async (c) => {
   try {
+    const user = c.get('user');
     const body = await c.req.json<CreateTaskRequest>();
-    
+
     // Validate required fields
     if (!body.project || (!body.description && !body.briefing) || !body.allowed_files) {
       return c.json({ error: 'Missing required fields' }, 400);
@@ -29,7 +42,10 @@ tasksRouter.post('/', async (c) => {
       body.description = body.briefing;
     }
 
-    const task = await taskManager.createTask(body);
+    const task = await taskManager.createTask({
+      ...body,
+      user_id: user.id,
+    });
     return c.json(task, 201);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -42,8 +58,9 @@ tasksRouter.post('/', async (c) => {
 
 // GET /tasks/:id - Get task status
 tasksRouter.get('/:id', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
-  const task = await taskManager.getTask(id);
+  const task = await taskManager.getTask(id, user.id);
 
   if (!task) {
     return c.json({ error: 'Task not found' }, 404);
@@ -54,11 +71,18 @@ tasksRouter.get('/:id', async (c) => {
 
 // GET /tasks/:id/diff - Get task diff
 tasksRouter.get('/:id/diff', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
-  const diff = await taskManager.getTaskDiff(id);
 
+  // Verify ownership first
+  const task = await taskManager.getTask(id, user.id);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+
+  const diff = await taskManager.getTaskDiff(id);
   if (!diff) {
-    return c.json({ error: 'Task not found or no diff available' }, 404);
+    return c.json({ error: 'No diff available' }, 404);
   }
 
   return c.text(diff);
@@ -66,8 +90,9 @@ tasksRouter.get('/:id/diff', async (c) => {
 
 // POST /tasks/:id/start - Start a task
 tasksRouter.post('/:id/start', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
-  const task = await taskManager.getTask(id);
+  const task = await taskManager.getTask(id, user.id);
 
   if (!task) {
     return c.json({ error: 'Task not found' }, 404);
@@ -88,7 +113,15 @@ tasksRouter.post('/:id/start', async (c) => {
 
 // POST /tasks/:id/approve - Approve and commit
 tasksRouter.post('/:id/approve', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
+
+  // Verify ownership first
+  const task = await taskManager.getTask(id, user.id);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+
   const body = await c.req.json<ApproveRequest>();
 
   try {
@@ -105,7 +138,15 @@ tasksRouter.post('/:id/approve', async (c) => {
 
 // POST /tasks/:id/reject - Reject with feedback
 tasksRouter.post('/:id/reject', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
+
+  // Verify ownership first
+  const task = await taskManager.getTask(id, user.id);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+
   const body = await c.req.json<RejectRequest>();
 
   try {
@@ -120,22 +161,28 @@ tasksRouter.post('/:id/reject', async (c) => {
   }
 });
 
-// GET /tasks - List all tasks
+// GET /tasks - List all tasks (filtered by user)
 tasksRouter.get('/', async (c) => {
-  const tasks = await taskManager.listTasks();
+  const user = c.get('user');
+  const tasks = await taskManager.listTasks(user.id);
   return c.json({ tasks });
 });
 
 // DELETE /tasks/:id - Delete a task
 tasksRouter.delete('/:id', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
-  const task = await taskManager.getTask(id);
+
+  // Verify ownership first
+  const task = await taskManager.getTask(id, user.id);
   if (!task) {
     return c.json({ error: 'Task not found' }, 404);
   }
+
   if (task.status === 'running') {
     return c.json({ error: 'Cannot delete a running task' }, 400);
   }
+
   taskManager.deleteTask(id);
   return c.json({ success: true, message: `Task ${id} deleted` });
 });
