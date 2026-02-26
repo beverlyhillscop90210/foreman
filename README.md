@@ -37,15 +37,81 @@ AI coding agents are powerful but difficult to coordinate. A single agent workin
 
 ## Quick Start
 
-### 1. Clone & Install
+### Automated Setup (Recommended)
+
+```bash
+git clone https://github.com/beverlyhillscop90210/foreman.git
+cd foreman
+./setup.sh
+```
+
+The setup script will:
+- Install dependencies
+- Build the MCP server
+- Ask for your Foreman credentials
+- Configure your OpenRouter API key
+- Generate Claude Desktop config automatically
+
+### Manual Setup
+
+If you prefer to set up manually:
+
+#### 1. Clone & Install
 
 ```bash
 git clone https://github.com/beverlyhillscop90210/foreman.git
 cd foreman
 pnpm install
+cd packages/mcp-server
+pnpm build
 ```
 
-### 2. Configure Environment
+#### 2. Get Your Credentials
+
+1. Go to https://dashboard.beverlyhillscop.io
+2. Sign up / Login
+3. Go to Settings → Create Personal Access Token (PAT)
+4. Copy the token (starts with `fm_`)
+
+#### 3. Set Your API Key
+
+```bash
+curl -X PUT https://foreman.beverlyhillscop.io/api/api-keys/openrouter \
+  -H "Authorization: Bearer fm_YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"key_value": "YOUR_OPENROUTER_KEY"}'
+```
+
+Get your OpenRouter key at: https://openrouter.ai/keys
+
+#### 4. Configure Claude Desktop
+
+Create/edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "foreman": {
+      "command": "node",
+      "args": ["/FULL/PATH/TO/foreman/packages/mcp-server/dist/index.js"],
+      "env": {
+        "FOREMAN_BRIDGE_URL": "https://foreman.beverlyhillscop.io",
+        "FOREMAN_AUTH_TOKEN": "fm_YOUR_TOKEN"
+      }
+    }
+  }
+}
+```
+
+#### 5. Restart Claude Desktop
+
+---
+
+## Self-Hosted Setup
+
+If you want to run your own Foreman Bridge:
+
+### Configure Environment
 
 Create a `.env` file in `packages/bridge/`:
 
