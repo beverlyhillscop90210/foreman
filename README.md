@@ -68,7 +68,7 @@ pnpm build
 
 #### 2. Get Your Credentials
 
-1. Go to https://dashboard.beverlyhillscop.io
+1. Go to **https://dashboard.beverlyhillscop.io**
 2. Sign up / Login
 3. Go to Settings → Create Personal Access Token (PAT)
 4. Copy the token (starts with `fm_`)

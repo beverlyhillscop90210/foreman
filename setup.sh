@@ -36,15 +36,15 @@ echo ""
 echo -e "${BLUE}📝 Configuration${NC}"
 echo ""
 
-read -p "Foreman Bridge URL (default: https://foreman.beverlyhillscop.io): " BRIDGE_URL
-BRIDGE_URL=${BRIDGE_URL:-https://foreman.beverlyhillscop.io}
+BRIDGE_URL="https://foreman.beverlyhillscop.io"
+DASHBOARD_URL="https://dashboard.beverlyhillscop.io"
 
 read -p "Your email for Foreman login: " USER_EMAIL
 
 echo ""
 echo -e "${YELLOW}⚠️  Next steps:${NC}"
 echo ""
-echo "1. Go to https://dashboard.beverlyhillscop.io"
+echo "1. Go to ${DASHBOARD_URL}"
 echo "2. Sign up with: ${USER_EMAIL}"
 echo "3. Go to Settings → Create Personal Access Token (PAT)"
 echo "4. Copy the token (starts with 'fm_')"
