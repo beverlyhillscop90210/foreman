@@ -26,14 +26,32 @@ function App() {
         const email = session.user.email;
         const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io' || email === 'peter.schings@googlemail.com';
 
-        // Always sync settings from API before checking access control
-        try {
-          await syncWithAPI();
-        } catch (e) {
-          console.error("Failed to sync with API", e);
+        let isAllowed = isSuperAdmin;
+
+        if (!isAllowed) {
+          // Query access control directly from Supabase settings table
+          try {
+            const { data, error } = await supabase
+              .from('settings')
+              .select('value')
+              .eq('key', 'accessControl')
+              .single();
+
+            if (!error && data?.value?.users) {
+              isAllowed = data.value.users.some((u: any) => u.email === email);
+            }
+          } catch (e) {
+            console.error('Failed to query accessControl from settings', e);
+          }
         }
 
-        const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
+        // Fallback: also check the store (covers localStorage fallback)
+        if (!isAllowed) {
+          try {
+            await syncWithAPI();
+          } catch (e) { /* ignore */ }
+          isAllowed = useSettingsStore.getState().accessControl.users?.some(u => u.email === email) || false;
+        }
 
         if (!isAllowed) {
           await supabase.auth.signOut();
@@ -44,6 +62,8 @@ function App() {
           setSession(session);
           useChatStore.getState().setCurrentUser(email);
           setAccessDenied(false);
+          // Sync full settings now that we know user is allowed
+          syncWithAPI().catch(() => {});
         }
       } else {
         setSession(null);
