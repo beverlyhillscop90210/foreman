@@ -52,6 +52,7 @@ export async function generateDagFromBrief(
   input: PlannerInput,
   apiKey?: string,
   userId?: string,
+  userRole?: string,
 ): Promise<PlannerOutput> {
   let key = apiKey;
 
@@ -63,13 +64,13 @@ export async function generateDagFromBrief(
     } catch { /* api key service not available */ }
   }
 
-  // Fallback to env var
-  if (!key) {
+  // Fallback to env var ONLY for admin users
+  if (!key && userRole === 'admin') {
     key = process.env.OPENROUTER_API_KEY;
   }
 
-  // Fallback: try loading from configService
-  if (!key) {
+  // Fallback: try loading from configService (admin only)
+  if (!key && userRole === 'admin') {
     try {
       const { configService } = await import('./routes/config.js');
       if (configService) {
@@ -80,7 +81,7 @@ export async function generateDagFromBrief(
   }
 
   if (!key) {
-    throw new Error('OPENROUTER_API_KEY is required for the Planner agent. Set it via environment variable, user API keys, or in Settings > Config.');
+    throw new Error('No API key found. Please set your OpenRouter API key via Settings or contact your administrator.');
   }
 
   const plannerRole = AGENT_ROLES['planner'];

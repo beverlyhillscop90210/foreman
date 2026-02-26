@@ -32,10 +32,11 @@ export class ApiKeyService {
 
   /**
    * Get API key for a specific provider and user
-   * Falls back to environment variable if no user key found
+   * ONLY returns user-specific keys - NO fallback to env vars
+   * (env var fallback is handled in planner.ts for admin users only)
    */
   async getKey(provider: string, userId?: string): Promise<string | null> {
-    // If user ID provided, try to get user-specific key first
+    // If user ID provided, try to get user-specific key
     if (userId) {
       try {
         const { data, error } = await this.supabase
@@ -54,14 +55,7 @@ export class ApiKeyService {
       }
     }
 
-    // Fallback to environment variable
-    const envKey = this.getEnvKey(provider);
-    if (envKey) {
-      log.info('Using environment variable API key', { provider });
-      return envKey;
-    }
-
-    log.warn('No API key found', { provider, userId });
+    log.warn('No user-specific API key found', { provider, userId });
     return null;
   }
 

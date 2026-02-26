@@ -2,16 +2,30 @@ import { Hono } from 'hono';
 import { DagExecutor } from '../dag-executor.js';
 import { generateDagFromBrief } from '../planner.js';
 import type { KnowledgeService } from '../services/knowledge.js';
+import { authMiddleware } from '../middleware/auth.js';
+
+// Define context variables type
+type Variables = {
+  user: {
+    id: string;
+    role: string;
+  };
+};
 
 export function createDagRoutes(dagExecutor: DagExecutor, knowledgeService?: KnowledgeService) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: Variables }>();
+
+  // Apply auth middleware to /plan endpoint (requires user API keys)
+  app.use('/plan', authMiddleware);
 
   /**
    * POST /plan - Use the Planner agent to generate a DAG from a brief
    * This must be BEFORE /:id routes to avoid matching "plan" as an ID
+   * REQUIRES AUTH - User must have their own API key set (or be admin)
    */
   app.post('/plan', async (c) => {
     try {
+      const user = c.get('user');
       const body = await c.req.json();
       if (!body.project || !body.brief) {
         return c.json({ error: 'project and brief are required' }, 400);
@@ -28,11 +42,17 @@ export function createDagRoutes(dagExecutor: DagExecutor, knowledgeService?: Kno
         } catch { /* no knowledge available, continue without */ }
       }
 
-      const dagInput = await generateDagFromBrief({
-        project: body.project,
-        brief: body.brief,
-        context,
-      });
+      // Pass user ID and role to planner for API key lookup
+      const dagInput = await generateDagFromBrief(
+        {
+          project: body.project,
+          brief: body.brief,
+          context,
+        },
+        undefined, // apiKey
+        user.id,   // userId
+        user.role  // userRole
+      );
 
       // Auto-create the DAG if requested (default: true)
       if (body.auto_create !== false) {
