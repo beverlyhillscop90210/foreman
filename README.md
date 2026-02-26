@@ -2,6 +2,74 @@
 
 **DAG-based Agentic Orchestration System** — Decompose complex software tasks into multi-agent workflows, monitor execution in real-time, and approve results from a live dashboard.
 
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+git clone https://github.com/beverlyhillscop90210/foreman.git
+cd foreman
+./setup.sh
+```
+
+Then:
+1. Login at **https://dashboard.beverlyhillscop.io** (use Gmail)
+2. Settings → Enter your OpenRouter API key ([get one here](https://openrouter.ai/keys))
+3. Restart Claude Desktop
+4. Say: **"Use foreman_plan to build a REST API for blog posts"**
+
+---
+
+## 🛠️ Available MCP Tools (20 Tools)
+
+### 📋 Project Management
+- **`foreman_init_project`** - Create new project with GitHub repo
+
+### 🚀 DAG Workflows (Primary - Use These!)
+- **`foreman_plan`** ⭐ - AI planner creates DAG from brief
+- **`foreman_execute_dag`** - Start DAG execution
+- **`foreman_dag_status`** - Check DAG progress
+- **`foreman_approve_gate`** - Approve gate checkpoint
+- **`foreman_list_dags`** - List all DAGs
+- **`foreman_delete_dag`** - Delete DAG
+
+### 🎯 Simple Tasks (Low-Level)
+- **`foreman_create_task`** - Create single task (use DAG instead)
+- **`foreman_task_status`** - Check task status
+- **`foreman_get_diff`** - Get git diff of changes
+- **`foreman_approve`** - Approve task changes
+- **`foreman_reject`** - Reject task with feedback
+- **`foreman_list_tasks`** - List all tasks
+- **`foreman_delete_task`** - Delete single task
+- **`foreman_delete_all_tasks`** - Delete all tasks
+
+### 🎭 Agent Roles
+- **`foreman_list_roles`** - List available agent roles
+
+### 🧠 HGMem (Advanced RAG)
+- **`foreman_hgmem_query`** - Multi-step research query
+- **`foreman_hgmem_sessions`** - List/inspect HGMem sessions
+- **`foreman_hgmem_memory`** - View hypergraph memory
+
+### 📝 Example Prompts
+
+**Simple:**
+```
+Use foreman_plan to add JWT authentication to my-app
+```
+
+**Complex:**
+```
+foreman_plan:
+Project: ecommerce
+Brief: Build shopping cart with React frontend, Node.js backend,
+Stripe payments, and full test coverage
+```
+
+---
+
 ## The Problem
 
 AI coding agents are powerful but difficult to coordinate. A single agent working on a complex feature will lose context, make mistakes across unrelated files, and require constant babysitting. Running multiple agents manually is even worse — no dependency ordering, no scope isolation, no central visibility.
