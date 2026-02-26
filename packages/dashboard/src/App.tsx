@@ -21,20 +21,20 @@ function App() {
 
   // Check authentication
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        await syncWithAPI();
-      } catch (e) {
-        console.error("Failed to sync with API", e);
-      }
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      
+    const checkAccess = async (session: Session | null) => {
       if (session?.user?.email) {
         const email = session.user.email;
         const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io' || email === 'peter.schings@googlemail.com';
+
+        // Always sync settings from API before checking access control
+        try {
+          await syncWithAPI();
+        } catch (e) {
+          console.error("Failed to sync with API", e);
+        }
+
         const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
-        
+
         if (!isAllowed) {
           await supabase.auth.signOut();
           setSession(null);
@@ -49,31 +49,18 @@ function App() {
         setSession(null);
         useChatStore.getState().setCurrentUser(null);
       }
+    };
+
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      await checkAccess(session);
       setLoading(false);
     };
-    
+
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user?.email) {
-        const email = session.user.email;
-        const isSuperAdmin = email === 'peterschings@gmail.com' || email === 'peter@beverlyhillscop.io' || email === 'peter.schings@googlemail.com';
-        const isAllowed = isSuperAdmin || useSettingsStore.getState().accessControl.users?.some(u => u.email === email);
-        
-        if (!isAllowed) {
-          await supabase.auth.signOut();
-          setSession(null);
-          useChatStore.getState().setCurrentUser(null);
-          setAccessDenied(true);
-        } else {
-          setSession(session);
-          useChatStore.getState().setCurrentUser(email);
-          setAccessDenied(false);
-        }
-      } else {
-        setSession(null);
-        useChatStore.getState().setCurrentUser(null);
-      }
+      await checkAccess(session);
     });
 
     return () => subscription.unsubscribe();
