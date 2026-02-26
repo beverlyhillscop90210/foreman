@@ -37,7 +37,7 @@ AI coding agents are powerful but difficult to coordinate. A single agent workin
 
 ## Quick Start
 
-### Automated Setup (Recommended)
+### 1. Install MCP Server
 
 ```bash
 git clone https://github.com/beverlyhillscop90210/foreman.git
@@ -48,45 +48,20 @@ cd foreman
 The setup script will:
 - Install dependencies
 - Build the MCP server
-- Ask for your Foreman credentials
-- Configure your OpenRouter API key
-- Generate Claude Desktop config automatically
+- Generate Claude Desktop config
 
-### Manual Setup
-
-If you prefer to set up manually:
-
-#### 1. Clone & Install
-
-```bash
-git clone https://github.com/beverlyhillscop90210/foreman.git
-cd foreman
-pnpm install
-cd packages/mcp-server
-pnpm build
-```
-
-#### 2. Get Your Credentials
+### 2. Login & Set API Key
 
 1. Go to **https://dashboard.beverlyhillscop.io**
-2. Sign up / Login
-3. Go to Settings → Create Personal Access Token (PAT)
-4. Copy the token (starts with `fm_`)
+2. Login with Gmail
+3. Go to Settings → Set your OpenRouter API key
+   - Get one at: https://openrouter.ai/keys
 
-#### 3. Set Your API Key
+### 3. Configure Claude Desktop
 
-```bash
-curl -X PUT https://foreman.beverlyhillscop.io/api/api-keys/openrouter \
-  -H "Authorization: Bearer fm_YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"key_value": "YOUR_OPENROUTER_KEY"}'
-```
-
-Get your OpenRouter key at: https://openrouter.ai/keys
-
-#### 4. Configure Claude Desktop
-
-Create/edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+The setup script will show you the config. Add it to:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -95,15 +70,16 @@ Create/edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "node",
       "args": ["/FULL/PATH/TO/foreman/packages/mcp-server/dist/index.js"],
       "env": {
-        "FOREMAN_BRIDGE_URL": "https://foreman.beverlyhillscop.io",
-        "FOREMAN_AUTH_TOKEN": "fm_YOUR_TOKEN"
+        "FOREMAN_BRIDGE_URL": "https://foreman.beverlyhillscop.io"
       }
     }
   }
 }
 ```
 
-#### 5. Restart Claude Desktop
+### 4. Restart Claude Desktop
+
+Open Claude and say: **"Create a Foreman task to add authentication to my-api"**
 
 ---
 
